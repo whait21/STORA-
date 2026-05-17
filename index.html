@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>stora25 – Запись онлайн</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+    <style>
+        :root {
+            --bg: #f9f9f9; --text: #212121; --header: #cc0000; --header-text: #ffffff;
+            --card-bg: #ffffff; --shadow: 0 2px 8px rgba(0,0,0,0.1); --radius: 12px;
+            --font: 'Roboto', 'Arial', sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: var(--font); background: var(--bg); color: var(--text);
+            min-height: 100vh; display: flex; flex-direction: column;
+            transition: background 0.3s, color 0.3s;
+        }
+        .header {
+            background: var(--header); color: var(--header-text); padding: 10px 20px;
+            display: flex; align-items: center; justify-content: space-between;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2); position: sticky; top: 0; z-index: 100;
+        }
+        .header .logo-area { display: flex; align-items: center; gap: 12px; }
+        .menu-icon { font-size: 24px; cursor: pointer; user-select: none; position: relative; }
+        .badge {
+            position: absolute; top: -6px; right: -10px; background: #fff; color: #cc0000;
+            font-size: 11px; font-weight: bold; border-radius: 50%; width: 18px; height: 18px;
+            display: none; align-items: center; justify-content: center;
+        }
+        .badge.show { display: flex; }
+        .logo { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; display: flex; align-items: center; gap: 6px; }
+        .logo span { background: #fff; color: #cc0000; border-radius: 6px; padding: 2px 8px; font-size: 16px; margin-left: 2px; }
+        .avatar-wrapper { position: relative; cursor: pointer; }
+        .avatar {
+            width: 40px; height: 40px; border-radius: 50%; background: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; color: #cc0000; font-size: 20px;
+            background-size: cover; background-position: center; border: 2px solid #fff;
+            transition: transform 0.2s;
+        }
+        .avatar:hover { transform: scale(1.1); }
+        .admin-tooltip {
+            position: absolute; bottom: -28px; right: 0; background: #333; color: #fff;
+            font-size: 11px; padding: 4px 8px; border-radius: 4px; white-space: nowrap;
+            opacity: 0; pointer-events: none; transition: opacity 0.2s;
+        }
+        .avatar-wrapper:hover .admin-tooltip { opacity: 1; }
+        .main-container { flex: 1; padding: 24px 16px; max-width: 600px; width: 100%; margin: 0 auto; }
+        .card { background: var(--card-bg); border-radius: var(--radius); padding: 24px; box-shadow: var(--shadow); margin-bottom: 20px; }
+        h2 { font-size: 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; font-weight: 500; margin-bottom: 6px; font-size: 14px; color: #606060; }
+        input[type="text"], input[type="tel"], input[type="email"], input[type="date"], select, textarea {
+            width: 100%; padding: 12px 14px; border: 1px solid #dcdcdc; border-radius: 8px;
+            font-size: 16px; font-family: var(--font); transition: border 0.2s;
+            background: var(--card-bg); color: var(--text); resize: vertical;
+        }
+        textarea { min-height: 80px; }
+        input:focus, select:focus, textarea:focus {
+            outline: none; border-color: #065fd4; box-shadow: 0 0 0 2px rgba(6,95,212,0.15);
+        }
+        select:disabled { background: #eee; color: #777; }
+        .time-slots { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+        .time-slot {
+            padding: 10px 16px; border-radius: 20px; font-weight: 500; cursor: pointer;
+            font-size: 14px; border: 2px solid transparent; transition: all 0.2s;
+            user-select: none; background: #e8e8e8; color: #555;
+        }
+        .time-slot.free { background: #e8f5e9; color: #2e7d32; border-color: #a5d6a7; }
+        .time-slot.free:hover { background: #c8e6c9; transform: translateY(-1px); }
+        .time-slot.busy { background: #ffebee; color: #c62828; border-color: #ef9a9a; cursor: not-allowed; opacity: 0.7; }
+        .time-slot.selected { background: #065fd4; color: #fff; border-color: #065fd4; }
+        .btn {
+            display: inline-block; padding: 12px 28px; border-radius: 24px;
+            font-size: 16px; font-weight: 600; border: none; cursor: pointer;
+            transition: all 0.2s; font-family: var(--font);
+        }
+        .btn-primary { background: #065fd4; color: #fff; width: 100%; margin-top: 8px; }
+        .btn-primary:hover { background: #054fc0; }
+        .btn-primary:disabled { background: #a0c4f0; cursor: not-allowed; }
+        .success-msg {
+            background: #e8f5e9; color: #2e7d32; padding: 12px 16px;
+            border-radius: 8px; margin-top: 12px; display: none; text-align: center; font-weight: 500;
+        }
+        .chat-widget {
+            position: fixed; bottom: 24px; right: 24px; z-index: 300;
+        }
+        .chat-button {
+            width: 56px; height: 56px; border-radius: 50%; background: #065fd4; color: #fff;
+            display: flex; align-items: center; justify-content: center; font-size: 24px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25); cursor: pointer; border: none;
+            transition: transform 0.2s;
+        }
+        .chat-button:hover { transform: scale(1.1); }
+        .chat-badge {
+            position: absolute; top: -4px; right: -4px; background: #f44336; color: #fff;
+            font-size: 12px; font-weight: bold; border-radius: 50%; width: 22px; height: 22px;
+            display: none; align-items: center; justify-content: center;
+        }
+        .chat-badge.show { display: flex; }
+        .chat-panel {
+            position: absolute; bottom: 70px; right: 0; width: 300px; max-height: 400px;
+            background: #fff; border-radius: 16px; box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            display: none; flex-direction: column; overflow: hidden;
+        }
+        .chat-panel.open { display: flex; }
+        .chat-header {
+            background: #065fd4; color: #fff; padding: 12px 16px; font-weight: 600;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .chat-header button { background: none; border: none; color: #fff; font-size: 18px; cursor: pointer; }
+        .chat-messages { flex: 1; overflow-y: auto; padding: 12px; }
+        .chat-message {
+            background: #f0f0f0; border-radius: 12px; padding: 10px 14px; margin-bottom: 8px;
+            font-size: 14px; line-height: 1.4;
+        }
+        .chat-message .time { font-size: 11px; color: #888; margin-top: 4px; }
+        .chat-message.unread { background: #e3f2fd; font-weight: 500; }
+        .toast-container {
+            position: fixed; top: 80px; right: 20px; z-index: 400; display: flex;
+            flex-direction: column; gap: 10px;
+        }
+        .toast {
+            background: #333; color: #fff; padding: 12px 18px; border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2); font-size: 14px; max-width: 280px;
+            animation: fadeIn 0.3s ease;
+        }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+        .notify-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 150; display: none; justify-content: flex-start;
+        }
+        .notify-overlay.active { display: flex; }
+        .notify-panel {
+            background: #fff; width: 340px; max-width: 85%; height: 100%;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.3); padding: 20px;
+            overflow-y: auto; animation: slideIn 0.2s ease;
+        }
+        @keyframes slideIn { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+        .notify-panel h3 { margin-bottom: 16px; font-size: 18px; }
+        .notify-item { background: #f0f0f0; border-radius: 10px; padding: 12px; margin-bottom: 10px; font-size: 14px; }
+        .notify-item .time { font-size: 11px; color: #888; margin-top: 4px; }
+        .notify-item.unread { background: #e3f2fd; font-weight: 500; }
+        .notify-close { float: right; background: none; border: none; font-size: 20px; cursor: pointer; margin-top: -4px; }
+        .email-prompt { margin-bottom: 16px; }
+        .email-prompt input { flex: 1; margin-right: 8px; }
+        .email-prompt .btn { padding: 8px 16px; font-size: 14px; }
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); z-index: 200; display: none;
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: #fff; border-radius: 16px; padding: 28px;
+            max-width: 520px; width: 90%; max-height: 85vh; overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3); position: relative;
+        }
+        .modal h3 { margin-bottom: 18px; font-size: 20px; }
+        .close-btn {
+            position: absolute; top: 14px; right: 18px;
+            background: none; border: none; font-size: 28px; cursor: pointer; color: #888; line-height: 1;
+        }
+        .close-btn:hover { color: #333; }
+        .btn-small { padding: 6px 14px; font-size: 13px; border-radius: 16px; margin: 2px; font-weight: 500; border: none; cursor: pointer; }
+        .btn-green { background: #4caf50; color: #fff; }
+        .btn-red { background: #f44336; color: #fff; }
+        .btn-orange { background: #ff9800; color: #fff; }
+        .btn-gray { background: #9e9e9e; color: #fff; }
+        .btn-unlock { background: #2196F3; color: #fff; }
+        .btn-reset-block { background: #e91e63; color: #fff; font-size: 13px; padding: 6px 14px; border-radius: 16px; margin-left: 10px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+        th, td { padding: 8px 6px; border-bottom: 1px solid #eee; text-align: left; vertical-align: middle; }
+        th { font-weight: 600; font-size: 12px; color: #777; }
+        .settings-group { margin-bottom: 16px; }
+        .settings-group label { font-size: 13px; margin-bottom: 4px; }
+        .settings-group input[type="color"] { width: 50px; height: 36px; border: none; cursor: pointer; padding: 0; border-radius: 8px; }
+        .settings-group input[type="file"] { font-size: 13px; }
+        .row-flex { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .board-container { display: flex; flex-wrap: wrap; gap: 20px; }
+        .board-date-group { flex: 1 1 100%; }
+        .board-date-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; color: #333; border-bottom: 2px solid #065fd4; padding-bottom: 4px; }
+        .board-places { display: flex; flex-wrap: wrap; gap: 20px; }
+        .board-place { background: #f0f4ff; border-radius: 12px; padding: 16px; flex: 1 1 250px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
+        .board-place h4 { font-size: 16px; margin-bottom: 10px; color: #065fd4; }
+        .board-card { background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+        .board-card .client { font-weight: 600; }
+        .board-card .desc { color: #555; font-size: 14px; margin-top: 4px; }
+        .board-card .time-range { font-size: 13px; color: #065fd4; margin-top: 4px; }
+        .btn-add-outside { background: #ff9800; color: #fff; margin-left: 8px; }
+        @media (max-width: 480px) {
+            .header { padding: 8px 14px; }
+            .logo { font-size: 17px; }
+            .main-container { padding: 16px 10px; }
+            .card { padding: 16px; }
+            .time-slot { padding: 8px 12px; font-size: 12px; }
+            table { font-size: 11px; }
+            th, td { padding: 6px 4px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+    <div class="logo-area">
+        <span class="menu-icon" id="menuIcon">☰<span class="badge" id="notifyBadge"></span></span>
+        <div class="logo">🚗 <span id="serviceNameSpan">stora25</span></div>
+    </div>
+    <div class="avatar-wrapper" id="avatarWrapper" title="Администратор">
+        <div class="avatar" id="headerAvatar">A</div>
+        <span class="admin-tooltip">Администратор</span>
+    </div>
+</div>
+
+<!-- ПАНЕЛЬ УВЕДОМЛЕНИЙ (старая) -->
+<div class="notify-overlay" id="notifyOverlay">
+    <div class="notify-panel" id="notifyPanel">
+        <button class="notify-close" id="notifyCloseBtn">✕</button>
+        <h3>🔔 Уведомления</h3>
+        <div id="notifyContent"></div>
+    </div>
+</div>
+
+<!-- ОСНОВНАЯ ФОРМА ЗАПИСИ -->
+<div class="main-container">
+    <div class="card" id="bookingCard">
+        <h2>📅 Запись в автосервис</h2>
+        <div class="form-group"><label>👤 Ваше имя</label><input type="text" id="clientName" placeholder="Иван Иванов"></div>
+        <div class="form-group"><label>📞 Номер телефона (+7 и 10 цифр обязательно)</label><input type="tel" id="clientPhone" placeholder="+7 900 123 45 67" maxlength="16"></div>
+        <div class="form-group"><label>📧 Email (для уведомлений о статусе)</label><input type="email" id="clientEmail" placeholder="mail@example.com"></div>
+        <div class="form-group"><label>📅 Выберите дату</label><input type="date" id="bookingDate"></div>
+        <div class="form-group"><label>🏗️ Выберите место</label>
+            <select id="placeSelect">
+                <option value="">-- Выберите --</option>
+                <option value="Подъемник 1">Подъемник 1</option>
+                <option value="Подъемник 2">Подъемник 2</option>
+                <option value="Подъемник 3">Подъемник 3</option>
+                <option value="Яма">Яма</option>
+            </select>
+        </div>
+        <div class="form-group" id="timeGroup" style="display:none;"><label>⏰ Выберите время начала (зелёное – свободно, красное – занято)</label><div class="time-slots" id="timeSlots"></div></div>
+        <div class="form-group"><label>🔧 Опишите, что нужно сделать</label><textarea id="workDescription" placeholder="Например: замена масла, диагностика ходовой..."></textarea></div>
+        <button class="btn btn-primary" id="submitBooking" disabled>📝 Записаться</button>
+        <div class="success-msg" id="successMsg">✅ Вы успешно записаны! Ожидайте подтверждения.</div>
+    </div>
+    <p style="text-align:center;color:#999;font-size:12px;">Рабочее время: с 10:00 до 19:00, интервал 30 мин.</p>
+    <p style="text-align:center;margin-top:8px;font-size:14px;">📞 Для уточнений звоните: <a href="tel:2509909" style="color:#065fd4;font-weight:500;">250-99-09</a></p>
+</div>
+
+<!-- ЧАТ УВЕДОМЛЕНИЙ -->
+<div class="chat-widget">
+    <button class="chat-button" id="chatButton">💬</button>
+    <span class="chat-badge" id="chatBadge">0</span>
+    <div class="chat-panel" id="chatPanel">
+        <div class="chat-header">
+            <span>Уведомления</span>
+            <button id="chatCloseBtn">✕</button>
+        </div>
+        <div class="chat-messages" id="chatMessages"></div>
+    </div>
+</div>
+
+<!-- ТОСТЫ -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- МОДАЛЬНОЕ ОКНО АДМИНИСТРАТОРА -->
+<div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modalContent">
+        <button class="close-btn" id="closeModalBtn">✕</button>
+        <div id="loginForm">
+            <h3>🔐 Вход администратора</h3>
+            <div class="form-group"><label>Логин</label><input type="text" id="adminLogin" placeholder="admin"></div>
+            <div class="form-group"><label>Пароль</label><input type="password" id="adminPass" placeholder="••••••"></div>
+            <button class="btn btn-primary" id="loginBtn">Войти</button>
+            <p style="margin-top:10px;font-size:12px;color:#999;">По умолчанию: admin / admin123</p>
+        </div>
+        <div id="adminPanel" style="display:none;">
+            <h3>⚙️ Панель администратора</h3>
+            <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                <button class="btn-small btn-gray" id="tabBookings">📋 Записи</button>
+                <button class="btn-small btn-gray" id="tabBoard">📋 Доска</button>
+                <button class="btn-small btn-gray" id="tabSettings">🎨 Оформление</button>
+                <button class="btn-small btn-red" id="logoutBtn">🚪 Выйти</button>
+            </div>
+            <div id="tabBookingsContent" style="display:block;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+                    <h4>Все записи</h4>
+                    <button class="btn-reset-block" id="resetAllBlocksBtn">🔓 Сбросить все блокировки</button>
+                </div>
+                <div id="bookingsList" style="max-height:400px;overflow-y:auto;"><p style="color:#999;">Загрузка...</p></div>
+            </div>
+            <div id="tabBoardContent" style="display:none;">
+                <h4>📋 Доска механиков <button class="btn-small btn-add-outside" id="addOutsideBtn">+ Вне плана</button></h4>
+                <div id="boardContainer" class="board-container"></div>
+            </div>
+            <div id="tabSettingsContent" style="display:none;">
+                <h4>Настройки оформления</h4>
+                <div class="settings-group"><label>🏷️ Название сервиса</label><input type="text" id="setServiceName" placeholder="stora25"></div>
+                <div class="settings-group"><label>🎨 Цвет шапки</label><input type="color" id="setHeaderColor" value="#cc0000"></div>
+                <div class="settings-group"><label>📝 Цвет текста</label><input type="color" id="setTextColor" value="#212121"></div>
+                <div class="settings-group"><label>🖼️ Фон страницы (цвет)</label><input type="color" id="setBgColor" value="#f9f9f9"></div>
+                <div class="settings-group"><label>🖼️ Фоновое изображение (URL или файл)</label><input type="text" id="setBgImage" placeholder="https://..."><input type="file" id="uploadBgImage" accept="image/*" style="margin-top:6px;"></div>
+                <div class="settings-group"><label>🔄 Шрифт</label><select id="setFont"><option value="'Roboto', 'Arial', sans-serif">Roboto (YouTube)</option><option value="'Arial', sans-serif">Arial</option><option value="'Georgia', serif">Georgia</option><option value="'Courier New', monospace">Courier New</option></select></div>
+                <div class="settings-group"><label>👤 Аватарка</label><input type="file" id="uploadAvatar" accept="image/*"></div>
+                <hr style="margin: 20px 0;">
+                <h4>🔑 Смена логина и пароля</h4>
+                <div class="settings-group"><label>Текущий пароль</label><input type="password" id="oldPass" placeholder="Введите старый пароль"></div>
+                <div class="settings-group"><label>Новый логин</label><input type="text" id="newLogin" placeholder="Новый логин"></div>
+                <div class="settings-group"><label>Новый пароль</label><input type="password" id="newPass" placeholder="Новый пароль"></div>
+                <button class="btn btn-primary" id="changeCredsBtn" style="margin-top: 8px;">💾 Сменить логин и пароль</button>
+                <br><button class="btn btn-primary" id="saveSettings">💾 Сохранить оформление</button>
+                <button class="btn-small btn-gray" id="resetSettings" style="margin-top:8px;">Сбросить</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ========== FIREBASE ==========
+    const firebaseConfig = {
+        apiKey: "AIzaSyD-GeGsNnspxGHorNZaTuCnST0AZw_L5v4",
+        authDomain: "stora-baf3b.firebaseapp.com",
+        projectId: "stora-baf3b",
+        storageBucket: "stora-baf3b.firebasestorage.app",
+        messagingSenderId: "140612445638",
+        appId: "1:140612445638:web:67ea27b47c11acac1dfec7",
+        measurementId: "G-FNSHXHJ768"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // ========== GOOGLE APPS SCRIPT (ваш URL) ==========
+    const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkVhG3ZwCyC-9DIGDGh4Lf7u9DEOMWJfH6JktwEDLMaHt7nqgfYAZxeKbA8ry9PQwQqg/exec';
+
+    const STORAGE_SETTINGS = 'as_settings', STORAGE_ADMIN = 'as_admin', STORAGE_CURRENT_EMAIL = 'as_user_email';
+    if (!localStorage.getItem(STORAGE_ADMIN)) localStorage.setItem(STORAGE_ADMIN, JSON.stringify({ login: 'admin', password: 'admin123' }));
+    function getUserEmail() { return localStorage.getItem(STORAGE_CURRENT_EMAIL) || ''; }
+    function setUserEmail(email) { localStorage.setItem(STORAGE_CURRENT_EMAIL, email); }
+
+    let allBookings = [], selectedTime = null, isAdminLoggedIn = false, currentAdminLogin = '';
+    let lastKnownNotificationId = null;
+
+    // DOM элементы
+    const menuIcon = document.getElementById('menuIcon');
+    const notifyBadge = document.getElementById('notifyBadge');
+    const notifyOverlay = document.getElementById('notifyOverlay');
+    const notifyCloseBtn = document.getElementById('notifyCloseBtn');
+    const notifyContent = document.getElementById('notifyContent');
+    const serviceNameSpan = document.getElementById('serviceNameSpan');
+    const headerAvatar = document.getElementById('headerAvatar');
+    const avatarWrapper = document.getElementById('avatarWrapper');
+    const modalOverlay = document.getElementById('modalOverlay');
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    const loginForm = document.getElementById('loginForm');
+    const adminPanel = document.getElementById('adminPanel');
+    const clientName = document.getElementById('clientName');
+    const clientPhone = document.getElementById('clientPhone');
+    const clientEmail = document.getElementById('clientEmail');
+    const bookingDate = document.getElementById('bookingDate');
+    const placeSelect = document.getElementById('placeSelect');
+    const timeGroup = document.getElementById('timeGroup');
+    const timeSlots = document.getElementById('timeSlots');
+    const workDescription = document.getElementById('workDescription');
+    const submitBtn = document.getElementById('submitBooking');
+    const successMsg = document.getElementById('successMsg');
+    const tabBookings = document.getElementById('tabBookings');
+    const tabBoard = document.getElementById('tabBoard');
+    const tabSettings = document.getElementById('tabSettings');
+    const tabBookingsContent = document.getElementById('tabBookingsContent');
+    const tabBoardContent = document.getElementById('tabBoardContent');
+    const tabSettingsContent = document.getElementById('tabSettingsContent');
+    const bookingsList = document.getElementById('bookingsList');
+    const boardContainer = document.getElementById('boardContainer');
+    const resetAllBlocksBtn = document.getElementById('resetAllBlocksBtn');
+    const chatButton = document.getElementById('chatButton');
+    const chatBadge = document.getElementById('chatBadge');
+    const chatPanel = document.getElementById('chatPanel');
+    const chatCloseBtn = document.getElementById('chatCloseBtn');
+    const chatMessages = document.getElementById('chatMessages');
+    const toastContainer = document.getElementById('toastContainer');
+
+    // Телефонная маска
+    clientPhone.addEventListener('input', function(e) {
+        let val = e.target.value.replace(/\D/g, '');
+        if (!val.startsWith('7') && val.length > 0) val = '7' + val;
+        const digits = val.slice(1);
+        let formatted = '+7';
+        if (digits.length > 0) formatted += ' ' + digits.slice(0, 3);
+        if (digits.length >= 4) formatted += ' ' + digits.slice(3, 6);
+        if (digits.length >= 7) formatted += ' ' + digits.slice(6, 8);
+        if (digits.length >= 9) formatted += ' ' + digits.slice(8, 10);
+        e.target.value = formatted;
+        checkForm();
+    });
+    function isValidPhone(phone) { const digits = phone.replace(/\D/g, ''); return digits.length === 11 && digits.startsWith('7'); }
+
+    // Слоты
+    function generateTimeSlots() { const slots = []; for (let h = 10; h < 19; h++) for (let m = 0; m < 60; m += 30) { if (h === 19 && m > 0) break; slots.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`); } return slots; }
+    const allSlots = generateTimeSlots();
+
+    function getBusySlots(dateStr, place) {
+        const busySet = new Set();
+        allBookings.forEach(b => { if (b.date !== dateStr || b.status === 'rejected' || b.place !== place) return; const start = b.time; const duration = b.duration || 0.5; const startIdx = allSlots.indexOf(start); if (startIdx === -1) return; const slotsCount = Math.round(duration / 0.5); for (let i = 0; i < slotsCount; i++) { const idx = startIdx + i; if (idx < allSlots.length) busySet.add(allSlots[idx]); } });
+        return Array.from(busySet);
+    }
+
+    function renderTimeSlots(dateStr, place) {
+        if (!dateStr || !place) { timeSlots.innerHTML = ''; return; }
+        const busy = getBusySlots(dateStr, place);
+        timeSlots.innerHTML = '';
+        allSlots.forEach(slot => {
+            const btn = document.createElement('div'); btn.className = 'time-slot'; btn.textContent = slot;
+            if (busy.includes(slot)) btn.classList.add('busy');
+            else { btn.classList.add('free'); btn.addEventListener('click', () => { document.querySelectorAll('.time-slot.selected').forEach(el => el.classList.remove('selected')); btn.classList.add('selected'); selectedTime = slot; checkForm(); }); }
+            timeSlots.appendChild(btn);
+        });
+    }
+
+    function checkForm() { submitBtn.disabled = !(clientName.value.trim() && isValidPhone(clientPhone.value) && bookingDate.value && placeSelect.value && selectedTime && workDescription.value.trim()); }
+    function resetForm() { clientName.value = ''; clientPhone.value = ''; clientEmail.value = ''; bookingDate.value = ''; placeSelect.value = ''; placeSelect.disabled = false; workDescription.value = ''; selectedTime = null; timeSlots.innerHTML = ''; timeGroup.style.display = 'none'; submitBtn.disabled = true; successMsg.style.display = 'none'; }
+
+    // Яма для масла
+    const oilKeywords = ['масла', 'масло', 'замена масла'];
+    workDescription.addEventListener('input', () => { const text = workDescription.value.toLowerCase(); const hasOil = oilKeywords.some(k => text.includes(k)); if (hasOil) { if (placeSelect.value !== 'Яма') { placeSelect.value = 'Яма'; refreshTimeSlots(); } placeSelect.disabled = true; } else { if (placeSelect.disabled) placeSelect.disabled = false; } checkForm(); successMsg.style.display = 'none'; });
+
+    function refreshTimeSlots() { const date = bookingDate.value; const place = placeSelect.value; if (date && place) { timeGroup.style.display = 'block'; selectedTime = null; renderTimeSlots(date, place); } else { timeGroup.style.display = 'none'; selectedTime = null; timeSlots.innerHTML = ''; } successMsg.style.display = 'none'; checkForm(); }
+    bookingDate.addEventListener('change', refreshTimeSlots);
+    placeSelect.addEventListener('change', refreshTimeSlots);
+    [clientName, clientEmail].forEach(el => el.addEventListener('input', () => { checkForm(); successMsg.style.display = 'none'; }));
+
+    // Firebase
+    function loadBookingsFromFirestore(callback) { db.collection('bookings').get().then(snapshot => { allBookings = []; snapshot.forEach(doc => allBookings.push({ id: doc.id, ...doc.data() })); if (callback) callback(); }).catch(err => { console.error(err); allBookings = []; if (callback) callback(); }); }
+    function subscribeToBookings() { db.collection('bookings').onSnapshot(snapshot => { allBookings = []; snapshot.forEach(doc => allBookings.push({ id: doc.id, ...doc.data() })); if (bookingDate.value && placeSelect.value) renderTimeSlots(bookingDate.value, placeSelect.value); if (adminPanel.style.display === 'block') { if (tabBookingsContent.style.display === 'block') renderBookingsTable(); if (tabBoardContent.style.display === 'block') renderBoard(); } updateBadge(); }); }
+
+    async function isPhoneBlocked(phone) { const doc = await db.collection('blocked_phones').doc(phone).get(); return doc.exists; }
+    async function blockPhone(phone) { await db.collection('blocked_phones').doc(phone).set({ blockedAt: new Date() }); }
+    async function unblockPhone(phone) { await db.collection('blocked_phones').doc(phone).delete(); }
+
+    async function resetAllBlockedPhones() {
+        if (!confirm('Снять все блокировки?')) return;
+        const snapshot = await db.collection('blocked_phones').get();
+        const batch = db.batch();
+        snapshot.forEach(doc => batch.delete(doc.ref));
+        await batch.commit();
+        alert('Все блокировки сняты.');
+    }
+    resetAllBlocksBtn.addEventListener('click', resetAllBlockedPhones);
+
+    // ========== УВЕДОМЛЕНИЯ (Firestore + Google Apps Script с Content-Type) ==========
+    async function addNotification(recipientEmail, clientName, message) {
+        if (!recipientEmail) return;
+        // Сохраняем в Firestore для чата и истории
+        await db.collection('notifications').add({
+            recipientEmail,
+            message,
+            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            read: false
+        });
+
+        // Отправляем email через Google Apps Script
+        if (GOOGLE_SCRIPT_URL) {
+            try {
+                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        to: recipientEmail,
+                        subject: 'Статус вашей записи в stora25',
+                        body: message
+                    })
+                });
+                if (!response.ok) {
+                    console.error('Ошибка отправки email через Apps Script:', response.status);
+                }
+            } catch (err) {
+                console.error('Ошибка fetch к Apps Script:', err);
+            }
+        }
+    }
+
+    function subscribeToNotifications() {
+        const email = getUserEmail();
+        if (!email) return;
+        db.collection('notifications')
+          .where('recipientEmail', '==', email)
+          .onSnapshot(snapshot => {
+              const unreadCount = snapshot.docs.filter(d => !d.data().read).length;
+              chatBadge.textContent = unreadCount;
+              chatBadge.classList.toggle('show', unreadCount > 0);
+              if (chatPanel.classList.contains('open')) {
+                  renderChatMessages(snapshot);
+              }
+              snapshot.docChanges().forEach(change => {
+                  if (change.type === 'added') {
+                      const data = change.doc.data();
+                      if (change.doc.id !== lastKnownNotificationId) {
+                          lastKnownNotificationId = change.doc.id;
+                          showToast(data.message);
+                      }
+                  }
+              });
+              updateBadgeFromSnapshot(snapshot);
+          });
+    }
+
+    function renderChatMessages(snapshot) {
+        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+            .sort((a,b) => (b.timestamp?.toDate().getTime()||0) - (a.timestamp?.toDate().getTime()||0));
+        let html = '';
+        if (docs.length === 0) html = '<p style="color:#999;text-align:center;">Нет уведомлений</p>';
+        else docs.forEach(n => {
+            html += `<div class="chat-message${n.read ? '' : ' unread'}">
+                <div>${n.message}</div>
+                <div class="time">${n.timestamp?.toDate().toLocaleString()||''}</div>
+            </div>`;
+        });
+        chatMessages.innerHTML = html;
+        docs.forEach(n => { if (!n.read) db.collection('notifications').doc(n.id).update({ read: true }); });
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        toastContainer.appendChild(toast);
+        setTimeout(() => toast.remove(), 4000);
+    }
+
+    function updateBadgeFromSnapshot(snapshot) {
+        const unread = snapshot.docs.filter(d => !d.data().read).length;
+        if (unread > 0) {
+            notifyBadge.textContent = unread;
+            notifyBadge.classList.add('show');
+        } else {
+            notifyBadge.classList.remove('show');
+        }
+    }
+
+    async function updateBadge() {
+        const email = getUserEmail();
+        if (!email) return;
+        const snap = await db.collection('notifications').where('recipientEmail', '==', email).where('read', '==', false).get();
+        const count = snap.size;
+        if (count > 0) {
+            notifyBadge.textContent = count;
+            notifyBadge.classList.add('show');
+        } else {
+            notifyBadge.classList.remove('show');
+        }
+    }
+
+    chatButton.addEventListener('click', () => {
+        const isOpen = chatPanel.classList.toggle('open');
+        if (isOpen) {
+            const email = getUserEmail();
+            if (email) {
+                db.collection('notifications').where('recipientEmail', '==', email).get()
+                  .then(snap => renderChatMessages(snap));
+            } else {
+                chatMessages.innerHTML = '<p style="color:#999;text-align:center;">Введите email в боковом меню (☰)</p>';
+            }
+        }
+    });
+    chatCloseBtn.addEventListener('click', () => chatPanel.classList.remove('open'));
+
+    // Старая боковая панель
+    function showNotifyPanel() {
+        const email = getUserEmail();
+        let emailHtml = '';
+        if (email) {
+            emailHtml = `<div class="email-prompt"><p>Текущий email: <strong>${email}</strong></p><button class="btn btn-small btn-gray" id="changeEmailBtn" style="margin-top:4px;">✏️ Изменить</button><div id="changeEmailForm" style="display:none; margin-top:8px;"><div class="row-flex"><input type="email" id="notifyEmailInput" placeholder="Новый email" style="flex:1;"><button class="btn btn-primary" id="saveNewEmailBtn" style="width:auto;margin:0;">Сохранить</button></div></div></div>`;
+        } else {
+            emailHtml = `<div class="email-prompt"><p>Введите email, чтобы увидеть уведомления по вашим записям:</p><div class="row-flex" style="margin-top:8px;"><input type="email" id="notifyEmailInput" placeholder="your@mail.com" style="flex:1;"><button class="btn btn-primary" id="saveNotifyEmail" style="width:auto;margin:0;">OK</button></div></div>`;
+        }
+        notifyContent.innerHTML = emailHtml + '<div id="notifyListContainer"></div>';
+        if (email) {
+            db.collection('notifications').where('recipientEmail', '==', email).get().then(snap => {
+                const container = document.getElementById('notifyListContainer');
+                if (!container) return;
+                const docs = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (b.timestamp?.toDate().getTime()||0)-(a.timestamp?.toDate().getTime()||0));
+                let html = '';
+                docs.forEach(n => html += `<div class="notify-item${n.read?'':' unread'}"><div>${n.message}</div><div class="time">${n.timestamp?.toDate().toLocaleString()||''}</div></div>`);
+                container.innerHTML = html || '<p style="color:#999;">Нет уведомлений.</p>';
+                docs.forEach(n => { if (!n.read) db.collection('notifications').doc(n.id).update({ read: true }); });
+            });
+        }
+        if (email) {
+            document.getElementById('changeEmailBtn').addEventListener('click', () => document.getElementById('changeEmailForm').style.display='block');
+            document.getElementById('saveNewEmailBtn').addEventListener('click', () => { const val = document.getElementById('notifyEmailInput').value.trim(); if (val) { setUserEmail(val); subscribeToNotifications(); showNotifyPanel(); } });
+        } else {
+            document.getElementById('saveNotifyEmail').addEventListener('click', () => { const val = document.getElementById('notifyEmailInput').value.trim(); if (val) { setUserEmail(val); subscribeToNotifications(); showNotifyPanel(); } });
+        }
+        notifyOverlay.classList.add('active');
+    }
+    menuIcon.addEventListener('click', showNotifyPanel);
+    notifyCloseBtn.addEventListener('click', () => notifyOverlay.classList.remove('active'));
+    notifyOverlay.addEventListener('click', e => { if (e.target === notifyOverlay) notifyOverlay.classList.remove('active'); });
+
+    // Отправка записи
+    submitBtn.addEventListener('click', async () => {
+        if (submitBtn.disabled) return;
+        const phone = clientPhone.value.replace(/\s/g, '');
+        if (await isPhoneBlocked(phone)) { alert('Вы уже записаны. Ожидайте разрешения администратора.'); return; }
+        const newBooking = { name: clientName.value.trim(), phone, email: clientEmail.value.trim(), date: bookingDate.value, place: placeSelect.value, time: selectedTime, duration: 0.5, workDescription: workDescription.value.trim(), status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp() };
+        try { await db.collection('bookings').add(newBooking); await blockPhone(phone); successMsg.style.display = 'block'; resetForm(); } catch (err) { alert('Ошибка: '+err.message); }
+    });
+
+    // Админка
+    avatarWrapper.addEventListener('click', () => { if (isAdminLoggedIn) showAdminPanel(); else showLoginForm(); modalOverlay.classList.add('active'); });
+    closeModalBtn.addEventListener('click', () => modalOverlay.classList.remove('active'));
+    modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) modalOverlay.classList.remove('active'); });
+    function showLoginForm() { loginForm.style.display='block'; adminPanel.style.display='none'; }
+    function showAdminPanel() { loginForm.style.display='none'; adminPanel.style.display='block'; renderBookingsTable(); loadSettingsToForm(); tabBookingsContent.style.display='block'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='none'; }
+    document.getElementById('loginBtn').addEventListener('click', () => { const stored = JSON.parse(localStorage.getItem(STORAGE_ADMIN)); if (document.getElementById('adminLogin').value.trim()===stored.login && document.getElementById('adminPass').value===stored.password) { isAdminLoggedIn = true; currentAdminLogin = stored.login; headerAvatar.textContent = currentAdminLogin.charAt(0).toUpperCase(); const s = JSON.parse(localStorage.getItem(STORAGE_SETTINGS)||'{}'); if (s.avatar) headerAvatar.style.backgroundImage = `url(${s.avatar})`; showAdminPanel(); } else alert('Неверный логин или пароль'); });
+    document.getElementById('logoutBtn').addEventListener('click', () => { isAdminLoggedIn = false; currentAdminLogin = ''; headerAvatar.textContent = 'A'; headerAvatar.style.backgroundImage = ''; modalOverlay.classList.remove('active'); loginForm.style.display='block'; adminPanel.style.display='none'; });
+    tabBookings.addEventListener('click', () => { tabBookingsContent.style.display='block'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='none'; renderBookingsTable(); });
+    tabBoard.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='block'; tabSettingsContent.style.display='none'; renderBoard(); });
+    tabSettings.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='block'; loadSettingsToForm(); });
+
+    function renderBookingsTable() {
+        if (!allBookings.length) { bookingsList.innerHTML = '<p style="color:#999;">Нет записей.</p>'; return; }
+        const sorted = [...allBookings].sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
+        let html = `<table><thead><tr><th>Имя</th><th>Тел</th><th>Email</th><th>Дата</th><th>Место</th><th>Начало</th><th>Длит</th><th>Работа</th><th>Статус</th><th>Действия</th></tr></thead><tbody>`;
+        sorted.forEach(b => {
+            const st = {pending:'⏳ Ожидает', approved:'✅ Принято', rejected:'❌ Отклонено'}[b.status];
+            html += `<tr><td>${b.name}</td><td>${b.phone}</td><td>${b.email||'-'}</td><td>${b.date}</td><td>${b.place||'-'}</td><td>${b.time}</td><td>${b.duration||0.5}ч</td><td>${b.workDescription}</td><td>${st}</td><td>${b.status==='pending'?`<button class="btn-small btn-green approve-btn" data-id="${b.id}">✓</button><button class="btn-small btn-red reject-btn" data-id="${b.id}">✕</button>`:''}<button class="btn-small btn-orange edit-btn" data-id="${b.id}">✎</button><button class="btn-small btn-red delete-btn" data-id="${b.id}">🗑</button><button class="btn-small btn-unlock unlock-btn" data-phone="${b.phone}">🔓</button></td></tr>`;
+        });
+        html += '</tbody></table>';
+        bookingsList.innerHTML = html;
+        document.querySelectorAll('.approve-btn').forEach(b=>b.addEventListener('click',()=>updateStatus(b.dataset.id,'approved')));
+        document.querySelectorAll('.reject-btn').forEach(b=>b.addEventListener('click',()=>updateStatus(b.dataset.id,'rejected')));
+        document.querySelectorAll('.edit-btn').forEach(b=>b.addEventListener('click',()=>editBooking(b.dataset.id)));
+        document.querySelectorAll('.delete-btn').forEach(b=>b.addEventListener('click',()=>deleteBooking(b.dataset.id)));
+        document.querySelectorAll('.unlock-btn').forEach(b=>b.addEventListener('click',async()=>{await unblockPhone(b.dataset.phone); alert('Разблокирован'); renderBookingsTable();}));
+    }
+
+    async function updateStatus(id, status) {
+        const reason = prompt(status === 'approved' ? 'Комментарий к подтверждению (необязательно):' : 'Причина отклонения (необязательно):');
+        await db.collection('bookings').doc(id).update({ status });
+        const b = allBookings.find(x=>x.id===id);
+        if (b) {
+            let msg = status === 'approved' ? `Запись на ${b.date} в ${b.time} (${b.place}) подтверждена!` : `Запись на ${b.date} в ${b.time} (${b.place}) отклонена.`;
+            if (reason && reason.trim()) msg += ` Причина: ${reason.trim()}`;
+            addNotification(b.email, b.name, msg);
+        }
+    }
+
+    async function deleteBooking(id) {
+        if (!confirm('Удалить запись? Телефон клиента будет разблокирован.')) return;
+        const b = allBookings.find(x => x.id == id);
+        if (!b) return;
+        try {
+            await unblockPhone(b.phone);
+            await db.collection('bookings').doc(id).delete();
+            if (b.email) addNotification(b.email, b.name, `Запись на ${b.date} в ${b.time} (${b.place}) удалена администратором.`);
+        } catch (err) { alert('Ошибка: '+err.message); }
+    }
+
+    async function editBooking(id) {
+        const b = allBookings.find(x=>x.id==id);
+        if (!b) return;
+        const newDate = prompt('Новая дата (ГГГГ-ММ-ДД):', b.date);
+        if (!newDate) return;
+        const newPlace = prompt('Место (Подъемник 1, Подъемник 2, Подъемник 3, Яма):', b.place);
+        if (!['Подъемник 1','Подъемник 2','Подъемник 3','Яма'].includes(newPlace)) { alert('Некорректное место'); return; }
+        const newTime = prompt('Новое время начала (ЧЧ:ММ):', b.time);
+        if (!newTime) return;
+        const newDur = prompt('Длительность (часов):', b.duration || 0.5);
+        if (!newDur || isNaN(parseFloat(newDur))) return;
+        const newWork = prompt('Описание работ:', b.workDescription);
+        if (newWork === null) return;
+        const reason = prompt('Причина переноса/изменения (необязательно):');
+        await db.collection('bookings').doc(id).update({ date: newDate, place: newPlace, time: newTime, duration: parseFloat(newDur), workDescription: newWork });
+        let msg = `Ваша запись перенесена на ${newDate} ${newTime}, ${newPlace}, длит. ${newDur} ч. Работа: ${newWork}`;
+        if (reason && reason.trim()) msg += ` Причина: ${reason.trim()}`;
+        addNotification(b.email, b.name, msg);
+    }
+
+    function renderBoard() {
+        const filtered = allBookings.filter(b => b.status !== 'rejected');
+        const grouped = {};
+        filtered.forEach(b => { const key = b.date; if (!grouped[key]) grouped[key] = {}; if (!grouped[key][b.place]) grouped[key][b.place] = []; grouped[key][b.place].push(b); });
+        let html = '';
+        Object.keys(grouped).sort().forEach(date => { html += `<div class="board-date-group"><div class="board-date-title">📅 ${date}</div><div class="board-places">`; Object.keys(grouped[date]).forEach(place => { html += `<div class="board-place"><h4>${place}</h4>`; grouped[date][place].sort((a,b)=>a.time.localeCompare(b.time)).forEach(b => { html += `<div class="board-card"><div class="client">${b.name} (${b.phone})</div><div class="time-range">${b.time} – ${b.duration||0.5}ч</div><div class="desc">${b.workDescription}</div></div>`; }); html += '</div>'; }); html += '</div></div>'; });
+        if (!Object.keys(grouped).length) html = '<p style="color:#999;">Нет активных записей.</p>';
+        boardContainer.innerHTML = html;
+    }
+
+    document.getElementById('addOutsideBtn').addEventListener('click', () => {
+        const name = prompt('Имя клиента (звонок)');
+        if (!name) return;
+        const phone = prompt('Телефон');
+        if (!phone) return;
+        const date = prompt('Дата (ГГГГ-ММ-ДД)');
+        if (!date) return;
+        const place = prompt('Место (Подъемник 1/2/3, Яма)');
+        if (!['Подъемник 1','Подъемник 2','Подъемник 3','Яма'].includes(place)) { alert('Некорректное место'); return; }
+        const time = prompt('Время начала (ЧЧ:ММ)');
+        if (!time) return;
+        const dur = prompt('Длительность (часов)', '0.5');
+        if (!dur || isNaN(parseFloat(dur))) return;
+        const work = prompt('Описание работ');
+        if (work === null) return;
+        db.collection('bookings').add({ name, phone, email:'', date, place, time, duration: parseFloat(dur), workDescription: work, status: 'approved', createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+    });
+
+    // Оформление
+    function getDefaultSettings() { return { serviceName:'stora25', headerColor:'#cc0000', textColor:'#212121', bgColor:'#f9f9f9', bgImage:'', font:"'Roboto', 'Arial', sans-serif", avatar:'' }; }
+    function applySettings(s) { const r=document.documentElement.style; r.setProperty('--header',s.headerColor); r.setProperty('--text',s.textColor); r.setProperty('--bg',s.bgColor); r.setProperty('--font',s.font); document.body.style.fontFamily=s.font; document.body.style.color=s.textColor; document.body.style.background=s.bgImage?`url(${s.bgImage}) center/cover no-repeat fixed`:s.bgColor; serviceNameSpan.textContent=s.serviceName; if (s.avatar) { headerAvatar.style.backgroundImage=`url(${s.avatar})`; headerAvatar.textContent=''; } else { headerAvatar.style.backgroundImage=''; headerAvatar.textContent=currentAdminLogin?currentAdminLogin.charAt(0).toUpperCase():'A'; } localStorage.setItem(STORAGE_SETTINGS,JSON.stringify(s)); }
+    function loadSettingsToForm() { const s=JSON.parse(localStorage.getItem(STORAGE_SETTINGS))||getDefaultSettings(); document.getElementById('setServiceName').value=s.serviceName; document.getElementById('setHeaderColor').value=s.headerColor; document.getElementById('setTextColor').value=s.textColor; document.getElementById('setBgColor').value=s.bgColor; document.getElementById('setBgImage').value=s.bgImage; document.getElementById('setFont').value=s.font; }
+    db.collection('settings').doc('ui').onSnapshot(doc=>{ if (doc.exists) applySettings(doc.data()); else applySettings(getDefaultSettings()); });
+    document.getElementById('saveSettings').addEventListener('click', async ()=>{ const s={ serviceName:document.getElementById('setServiceName').value.trim()||'stora25', headerColor:document.getElementById('setHeaderColor').value, textColor:document.getElementById('setTextColor').value, bgColor:document.getElementById('setBgColor').value, bgImage:document.getElementById('setBgImage').value.trim(), font:document.getElementById('setFont').value, avatar:JSON.parse(localStorage.getItem(STORAGE_SETTINGS)||'{}').avatar||'' }; await db.collection('settings').doc('ui').set(s,{merge:true}); applySettings(s); alert('Сохранено!'); });
+    document.getElementById('resetSettings').addEventListener('click', async ()=>{ if (!confirm('Сбросить?')) return; const def=getDefaultSettings(); await db.collection('settings').doc('ui').set(def,{merge:true}); applySettings(def); loadSettingsToForm(); });
+    document.getElementById('uploadBgImage').addEventListener('change', function(){ const f=this.files[0]; if (!f) return; const r=new FileReader(); r.onload=e=>document.getElementById('setBgImage').value=e.target.result; r.readAsDataURL(f); });
+    document.getElementById('uploadAvatar').addEventListener('change', function(){ const f=this.files[0]; if (!f) return; const r=new FileReader(); r.onload=async e=>{ const cur=JSON.parse(localStorage.getItem(STORAGE_SETTINGS)||'{}'); cur.avatar=e.target.result; localStorage.setItem(STORAGE_SETTINGS,JSON.stringify(cur)); await db.collection('settings').doc('ui').set({avatar:e.target.result},{merge:true}); applySettings(cur); }; r.readAsDataURL(f); });
+    document.getElementById('changeCredsBtn').addEventListener('click', ()=>{ const old=document.getElementById('oldPass').value; const nl=document.getElementById('newLogin').value.trim(); const np=document.getElementById('newPass').value; const adm=JSON.parse(localStorage.getItem(STORAGE_ADMIN)); if (old!==adm.password) { alert('Неверный пароль'); return; } if (!nl||!np) { alert('Заполните'); return; } adm.login=nl; adm.password=np; localStorage.setItem(STORAGE_ADMIN,JSON.stringify(adm)); alert('Сменено!'); });
+
+    function init() {
+        const local = JSON.parse(localStorage.getItem(STORAGE_SETTINGS)) || getDefaultSettings();
+        applySettings(local);
+        const today = new Date().toISOString().split('T')[0];
+        bookingDate.setAttribute('min', today);
+        loadBookingsFromFirestore(() => { subscribeToBookings(); updateBadge(); });
+        if (getUserEmail()) subscribeToNotifications();
+    }
+    init();
+</script>
+</body>
+</html>
