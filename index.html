@@ -149,6 +149,8 @@
         .email-prompt { margin-bottom: 16px; }
         .email-prompt input { flex: 1; margin-right: 8px; }
         .email-prompt .btn { padding: 8px 16px; font-size: 14px; }
+
+        /* модальное окно админа */
         .modal-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.6); z-index: 200; display: none;
@@ -157,9 +159,12 @@
         .modal-overlay.active { display: flex; }
         .modal {
             background: #fff; border-radius: 16px; padding: 28px;
-            max-width: 520px; width: 90%; max-height: 85vh; overflow-y: auto;
+            width: 90%; max-height: 85vh; overflow-y: auto;
             box-shadow: 0 20px 60px rgba(0,0,0,0.3); position: relative;
+            transition: max-width 0.3s;
         }
+        .modal.normal { max-width: 520px; }
+        .modal.wide { max-width: 800px; }
         .modal h3 { margin-bottom: 18px; font-size: 20px; }
         .close-btn {
             position: absolute; top: 14px; right: 18px;
@@ -182,7 +187,7 @@
         .settings-group input[type="file"] { font-size: 13px; }
         .row-flex { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 
-        /* ДОСКА */
+        /* ДОСКА – вертикальный список */
         .board-controls {
             display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 20px;
         }
@@ -193,21 +198,13 @@
             background: #e0e0e0; color: #333; transition: background 0.2s;
         }
         .board-controls button:hover { background: #d0d0d0; }
-        .board-controls button.active { background: #065fd4; color: #fff; }
         .board-container {
-            display: flex; flex-wrap: wrap; gap: 20px;
+            display: flex; flex-direction: column; gap: 20px;
             font-size: var(--board-font-size);
         }
-        .board-date-group { flex: 1 1 100%; }
-        .board-date-title {
-            font-size: calc(var(--board-font-size) * 1.6);
-            font-weight: 700; margin-bottom: 12px; color: #333;
-            border-bottom: 2px solid #065fd4; padding-bottom: 4px;
-        }
-        .board-places { display: flex; flex-wrap: wrap; gap: 20px; }
         .board-place {
             background: #f0f4ff; border-radius: 12px; padding: 16px;
-            flex: 1 1 250px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
         }
         .board-place h4 {
             font-size: calc(var(--board-font-size) * 1.2);
@@ -222,6 +219,9 @@
         .board-card .time-range { font-size: 0.9em; color: #065fd4; margin-top: 4px; }
         .btn-add-outside { background: #ff9800; color: #fff; margin-left: 8px; }
 
+        /* блокировка мест в админке */
+        .place-block-toggle { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+        .place-block-toggle input[type="checkbox"] { width: 18px; height: 18px; }
         @media (max-width: 480px) {
             .header { padding: 8px 14px; }
             .logo { font-size: 17px; }
@@ -247,7 +247,7 @@
     </div>
 </div>
 
-<!-- ПАНЕЛЬ УВЕДОМЛЕНИЙ (старая) -->
+<!-- ПАНЕЛЬ УВЕДОМЛЕНИЙ -->
 <div class="notify-overlay" id="notifyOverlay">
     <div class="notify-panel" id="notifyPanel">
         <button class="notify-close" id="notifyCloseBtn">✕</button>
@@ -300,7 +300,7 @@
 
 <!-- МОДАЛЬНОЕ ОКНО АДМИНИСТРАТОРА -->
 <div class="modal-overlay" id="modalOverlay">
-    <div class="modal" id="modalContent">
+    <div class="modal normal" id="modalContent">
         <button class="close-btn" id="closeModalBtn">✕</button>
         <div id="loginForm">
             <h3>🔐 Вход администратора</h3>
@@ -310,7 +310,10 @@
             <p style="margin-top:10px;font-size:12px;color:#999;">По умолчанию: admin / admin123</p>
         </div>
         <div id="adminPanel" style="display:none;">
-            <h3>⚙️ Панель администратора</h3>
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <h3>⚙️ Панель администратора</h3>
+                <button class="btn-small btn-gray" id="toggleModalSize">📐 Размер окна</button>
+            </div>
             <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
                 <button class="btn-small btn-gray" id="tabBookings">📋 Записи</button>
                 <button class="btn-small btn-gray" id="tabBoard">📋 Доска</button>
@@ -323,6 +326,10 @@
                     <button class="btn-reset-block" id="resetAllBlocksBtn">🔓 Сбросить все блокировки</button>
                 </div>
                 <div id="bookingsList" style="max-height:400px;overflow-y:auto;"><p style="color:#999;">Загрузка...</p></div>
+                <hr>
+                <h4>🚫 Блокировка подъёмников</h4>
+                <div id="placeBlockControls"></div>
+                <button class="btn btn-primary" id="savePlaceBlocks">💾 Сохранить блокировки</button>
             </div>
             <div id="tabBoardContent" style="display:none;">
                 <h4>📋 Доска механиков <button class="btn-small btn-add-outside" id="addOutsideBtn">+ Вне плана</button></h4>
@@ -370,7 +377,6 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
 
-    // ========== GOOGLE APPS SCRIPT (ваш URL) ==========
     const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwkVhG3ZwCyC-9DIGDGh4Lf7u9DEOMWJfH6JktwEDLMaHt7nqgfYAZxeKbA8ry9PQwQqg/exec';
 
     const STORAGE_SETTINGS = 'as_settings', STORAGE_ADMIN = 'as_admin', STORAGE_CURRENT_EMAIL = 'as_user_email';
@@ -380,7 +386,8 @@
 
     let allBookings = [], selectedTime = null, isAdminLoggedIn = false, currentAdminLogin = '';
     let lastKnownNotificationId = null;
-    let boardFontSize = 14; // размер шрифта по умолчанию
+    let boardFontSize = 14;
+    let blockedPlaces = {}; // { 'Подъемник 1': true, ... }
 
     // DOM элементы
     const menuIcon = document.getElementById('menuIcon');
@@ -395,6 +402,8 @@
     const closeModalBtn = document.getElementById('closeModalBtn');
     const loginForm = document.getElementById('loginForm');
     const adminPanel = document.getElementById('adminPanel');
+    const modalContent = document.getElementById('modalContent');
+    const toggleModalSizeBtn = document.getElementById('toggleModalSize');
     const clientName = document.getElementById('clientName');
     const clientPhone = document.getElementById('clientPhone');
     const clientEmail = document.getElementById('clientEmail');
@@ -421,8 +430,10 @@
     const chatCloseBtn = document.getElementById('chatCloseBtn');
     const chatMessages = document.getElementById('chatMessages');
     const toastContainer = document.getElementById('toastContainer');
+    const placeBlockControls = document.getElementById('placeBlockControls');
+    const savePlaceBlocksBtn = document.getElementById('savePlaceBlocks');
 
-    // Телефонная маска и слоты (без изменений)
+    // Телефонная маска
     clientPhone.addEventListener('input', function(e) {
         let val = e.target.value.replace(/\D/g, '');
         if (!val.startsWith('7') && val.length > 0) val = '7' + val;
@@ -437,6 +448,7 @@
     });
     function isValidPhone(phone) { const digits = phone.replace(/\D/g, ''); return digits.length === 11 && digits.startsWith('7'); }
 
+    // Слоты
     function generateTimeSlots() { const slots = []; for (let h = 10; h < 19; h++) for (let m = 0; m < 60; m += 30) { if (h === 19 && m > 0) break; slots.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`); } return slots; }
     const allSlots = generateTimeSlots();
 
@@ -458,20 +470,99 @@
         });
     }
 
-    function checkForm() { submitBtn.disabled = !(clientName.value.trim() && isValidPhone(clientPhone.value) && bookingDate.value && placeSelect.value && selectedTime && workDescription.value.trim()); }
+    function checkForm() {
+        const place = placeSelect.value;
+        const blocked = blockedPlaces[place] === true;
+        submitBtn.disabled = !(clientName.value.trim() && isValidPhone(clientPhone.value) && bookingDate.value && place && !blocked && selectedTime && workDescription.value.trim());
+    }
+
     function resetForm() { clientName.value = ''; clientPhone.value = ''; clientEmail.value = ''; bookingDate.value = ''; placeSelect.value = ''; placeSelect.disabled = false; workDescription.value = ''; selectedTime = null; timeSlots.innerHTML = ''; timeGroup.style.display = 'none'; submitBtn.disabled = true; successMsg.style.display = 'none'; }
 
+    // Яма для масла
     const oilKeywords = ['масла', 'масло', 'замена масла'];
-    workDescription.addEventListener('input', () => { const text = workDescription.value.toLowerCase(); const hasOil = oilKeywords.some(k => text.includes(k)); if (hasOil) { if (placeSelect.value !== 'Яма') { placeSelect.value = 'Яма'; refreshTimeSlots(); } placeSelect.disabled = true; } else { if (placeSelect.disabled) placeSelect.disabled = false; } checkForm(); successMsg.style.display = 'none'; });
+    workDescription.addEventListener('input', () => {
+        const text = workDescription.value.toLowerCase();
+        const hasOil = oilKeywords.some(k => text.includes(k));
+        if (hasOil) {
+            if (placeSelect.value !== 'Яма' && !blockedPlaces['Яма']) { placeSelect.value = 'Яма'; refreshTimeSlots(); }
+            if (!blockedPlaces['Яма']) placeSelect.disabled = true;
+            else placeSelect.disabled = false;
+        } else {
+            if (placeSelect.disabled && !hasOil) placeSelect.disabled = false;
+        }
+        updatePlaceSelectOptions();
+        checkForm();
+        successMsg.style.display = 'none';
+    });
 
-    function refreshTimeSlots() { const date = bookingDate.value; const place = placeSelect.value; if (date && place) { timeGroup.style.display = 'block'; selectedTime = null; renderTimeSlots(date, place); } else { timeGroup.style.display = 'none'; selectedTime = null; timeSlots.innerHTML = ''; } successMsg.style.display = 'none'; checkForm(); }
+    function updatePlaceSelectOptions() {
+        const options = placeSelect.options;
+        for (let i = 1; i < options.length; i++) {
+            const place = options[i].value;
+            if (blockedPlaces[place]) {
+                options[i].disabled = true;
+            } else {
+                options[i].disabled = false;
+            }
+        }
+        if (blockedPlaces[placeSelect.value]) {
+            placeSelect.value = '';
+            refreshTimeSlots();
+        }
+    }
+
+    function refreshTimeSlots() { const date = bookingDate.value; const place = placeSelect.value; if (date && place && !blockedPlaces[place]) { timeGroup.style.display = 'block'; selectedTime = null; renderTimeSlots(date, place); } else { timeGroup.style.display = 'none'; selectedTime = null; timeSlots.innerHTML = ''; } successMsg.style.display = 'none'; checkForm(); }
     bookingDate.addEventListener('change', refreshTimeSlots);
     placeSelect.addEventListener('change', refreshTimeSlots);
     [clientName, clientEmail].forEach(el => el.addEventListener('input', () => { checkForm(); successMsg.style.display = 'none'; }));
 
-    // Firebase
+    // Firebase загрузка
     function loadBookingsFromFirestore(callback) { db.collection('bookings').get().then(snapshot => { allBookings = []; snapshot.forEach(doc => allBookings.push({ id: doc.id, ...doc.data() })); if (callback) callback(); }).catch(err => { console.error(err); allBookings = []; if (callback) callback(); }); }
     function subscribeToBookings() { db.collection('bookings').onSnapshot(snapshot => { allBookings = []; snapshot.forEach(doc => allBookings.push({ id: doc.id, ...doc.data() })); if (bookingDate.value && placeSelect.value) renderTimeSlots(bookingDate.value, placeSelect.value); if (adminPanel.style.display === 'block') { if (tabBookingsContent.style.display === 'block') renderBookingsTable(); if (tabBoardContent.style.display === 'block') renderBoard(); } updateBadge(); }); }
+
+    // Блокировка мест
+    function loadBlockedPlaces() {
+        db.collection('settings').doc('blocked_places').get().then(doc => {
+            blockedPlaces = doc.exists ? doc.data().places || {} : {};
+            updatePlaceSelectOptions();
+            if (adminPanel.style.display === 'block' && tabBookingsContent.style.display === 'block') {
+                renderPlaceBlockControls();
+            }
+        });
+    }
+    function subscribeBlockedPlaces() {
+        db.collection('settings').doc('blocked_places').onSnapshot(doc => {
+            blockedPlaces = doc.exists ? doc.data().places || {} : {};
+            updatePlaceSelectOptions();
+            checkForm();
+            if (adminPanel.style.display === 'block' && tabBookingsContent.style.display === 'block') {
+                renderPlaceBlockControls();
+            }
+        });
+    }
+
+    function renderPlaceBlockControls() {
+        const places = ['Подъемник 1', 'Подъемник 2', 'Подъемник 3', 'Яма'];
+        let html = '';
+        places.forEach(place => {
+            const blocked = blockedPlaces[place] === true;
+            html += `<div class="place-block-toggle">
+                <input type="checkbox" id="block_${place}" ${blocked ? 'checked' : ''}>
+                <label for="block_${place}">${place} заблокирован</label>
+            </div>`;
+        });
+        placeBlockControls.innerHTML = html;
+    }
+
+    savePlaceBlocksBtn.addEventListener('click', async () => {
+        const places = {};
+        ['Подъемник 1', 'Подъемник 2', 'Подъемник 3', 'Яма'].forEach(place => {
+            const checkbox = document.getElementById(`block_${place}`);
+            if (checkbox) places[place] = checkbox.checked;
+        });
+        await db.collection('settings').doc('blocked_places').set({ places }, { merge: true });
+        alert('Блокировки сохранены');
+    });
 
     async function isPhoneBlocked(phone) { const doc = await db.collection('blocked_phones').doc(phone).get(); return doc.exists; }
     async function blockPhone(phone) { await db.collection('blocked_phones').doc(phone).set({ blockedAt: new Date() }); }
@@ -487,26 +578,13 @@
     }
     resetAllBlocksBtn.addEventListener('click', resetAllBlockedPhones);
 
-    // ========== УВЕДОМЛЕНИЯ (Firestore + Google Apps Script) ==========
+    // Уведомления (без изменений)
     async function addNotification(recipientEmail, clientName, message) {
         if (!recipientEmail) return;
-        await db.collection('notifications').add({
-            recipientEmail, message,
-            timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-            read: false
-        });
-
+        await db.collection('notifications').add({ recipientEmail, message, timestamp: firebase.firestore.FieldValue.serverTimestamp(), read: false });
         if (GOOGLE_SCRIPT_URL) {
             try {
-                await fetch(GOOGLE_SCRIPT_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        to: recipientEmail,
-                        subject: 'Статус вашей записи в stora25',
-                        body: message
-                    })
-                });
+                await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: recipientEmail, subject: 'Статус вашей записи в stora25', body: message }) });
             } catch (err) { console.error('Ошибка отправки email:', err); }
         }
     }
@@ -514,55 +592,32 @@
     function subscribeToNotifications() {
         const email = getUserEmail();
         if (!email) return;
-        db.collection('notifications').where('recipientEmail', '==', email)
-          .onSnapshot(snapshot => {
-              const unreadCount = snapshot.docs.filter(d => !d.data().read).length;
-              chatBadge.textContent = unreadCount;
-              chatBadge.classList.toggle('show', unreadCount > 0);
-              if (chatPanel.classList.contains('open')) renderChatMessages(snapshot);
-              snapshot.docChanges().forEach(change => {
-                  if (change.type === 'added' && change.doc.id !== lastKnownNotificationId) {
-                      lastKnownNotificationId = change.doc.id;
-                      showToast(change.doc.data().message);
-                  }
-              });
-              updateBadgeFromSnapshot(snapshot);
-          });
+        db.collection('notifications').where('recipientEmail', '==', email).onSnapshot(snapshot => {
+            const unreadCount = snapshot.docs.filter(d => !d.data().read).length;
+            chatBadge.textContent = unreadCount;
+            chatBadge.classList.toggle('show', unreadCount > 0);
+            if (chatPanel.classList.contains('open')) renderChatMessages(snapshot);
+            snapshot.docChanges().forEach(change => {
+                if (change.type === 'added' && change.doc.id !== lastKnownNotificationId) {
+                    lastKnownNotificationId = change.doc.id;
+                    showToast(change.doc.data().message);
+                }
+            });
+            updateBadgeFromSnapshot(snapshot);
+        });
     }
 
     function renderChatMessages(snapshot) {
-        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-            .sort((a,b) => (b.timestamp?.toDate().getTime()||0) - (a.timestamp?.toDate().getTime()||0));
+        const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => (b.timestamp?.toDate().getTime()||0) - (a.timestamp?.toDate().getTime()||0));
         let html = '';
         if (docs.length === 0) html = '<p style="color:#999;text-align:center;">Нет уведомлений</p>';
-        else docs.forEach(n => {
-            html += `<div class="chat-message${n.read ? '' : ' unread'}"><div>${n.message}</div><div class="time">${n.timestamp?.toDate().toLocaleString()||''}</div></div>`;
-        });
+        else docs.forEach(n => { html += `<div class="chat-message${n.read ? '' : ' unread'}"><div>${n.message}</div><div class="time">${n.timestamp?.toDate().toLocaleString()||''}</div></div>`; });
         chatMessages.innerHTML = html;
         docs.forEach(n => { if (!n.read) db.collection('notifications').doc(n.id).update({ read: true }); });
     }
-
-    function showToast(message) {
-        const toast = document.createElement('div');
-        toast.className = 'toast'; toast.textContent = message;
-        toastContainer.appendChild(toast);
-        setTimeout(() => toast.remove(), 4000);
-    }
-
-    function updateBadgeFromSnapshot(snapshot) {
-        const unread = snapshot.docs.filter(d => !d.data().read).length;
-        if (unread > 0) { notifyBadge.textContent = unread; notifyBadge.classList.add('show'); }
-        else notifyBadge.classList.remove('show');
-    }
-
-    async function updateBadge() {
-        const email = getUserEmail();
-        if (!email) return;
-        const snap = await db.collection('notifications').where('recipientEmail', '==', email).where('read', '==', false).get();
-        const count = snap.size;
-        if (count > 0) { notifyBadge.textContent = count; notifyBadge.classList.add('show'); }
-        else notifyBadge.classList.remove('show');
-    }
+    function showToast(message) { const toast = document.createElement('div'); toast.className = 'toast'; toast.textContent = message; toastContainer.appendChild(toast); setTimeout(() => toast.remove(), 4000); }
+    function updateBadgeFromSnapshot(snapshot) { const unread = snapshot.docs.filter(d => !d.data().read).length; if (unread > 0) { notifyBadge.textContent = unread; notifyBadge.classList.add('show'); } else notifyBadge.classList.remove('show'); }
+    async function updateBadge() { const email = getUserEmail(); if (!email) return; const snap = await db.collection('notifications').where('recipientEmail', '==', email).where('read', '==', false).get(); const count = snap.size; if (count > 0) { notifyBadge.textContent = count; notifyBadge.classList.add('show'); } else notifyBadge.classList.remove('show'); }
 
     chatButton.addEventListener('click', () => {
         const isOpen = chatPanel.classList.toggle('open');
@@ -611,42 +666,38 @@
         if (submitBtn.disabled) return;
         const phone = clientPhone.value.replace(/\s/g, '');
         if (await isPhoneBlocked(phone)) { alert('Вы уже записаны. Ожидайте разрешения администратора.'); return; }
+        if (blockedPlaces[placeSelect.value]) { alert('Этот подъёмник временно недоступен.'); return; }
         const newBooking = { name: clientName.value.trim(), phone, email: clientEmail.value.trim(), date: bookingDate.value, place: placeSelect.value, time: selectedTime, duration: 0.5, workDescription: workDescription.value.trim(), status: 'pending', createdAt: firebase.firestore.FieldValue.serverTimestamp() };
         try { await db.collection('bookings').add(newBooking); await blockPhone(phone); successMsg.style.display = 'block'; resetForm(); } catch (err) { alert('Ошибка: '+err.message); }
     });
 
-    // Админка
+    // Админка (размер окна)
+    let isWideModal = false;
+    toggleModalSizeBtn.addEventListener('click', () => {
+        isWideModal = !isWideModal;
+        modalContent.classList.toggle('wide', isWideModal);
+        modalContent.classList.toggle('normal', !isWideModal);
+    });
+
     avatarWrapper.addEventListener('click', () => { if (isAdminLoggedIn) showAdminPanel(); else showLoginForm(); modalOverlay.classList.add('active'); });
     closeModalBtn.addEventListener('click', () => modalOverlay.classList.remove('active'));
     modalOverlay.addEventListener('click', e => { if (e.target === modalOverlay) modalOverlay.classList.remove('active'); });
     function showLoginForm() { loginForm.style.display='block'; adminPanel.style.display='none'; }
-    function showAdminPanel() { loginForm.style.display='none'; adminPanel.style.display='block'; renderBookingsTable(); loadSettingsToForm(); tabBookingsContent.style.display='block'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='none'; }
+    function showAdminPanel() { loginForm.style.display='none'; adminPanel.style.display='block'; renderBookingsTable(); loadSettingsToForm(); tabBookingsContent.style.display='block'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='none'; renderPlaceBlockControls(); }
     document.getElementById('loginBtn').addEventListener('click', () => { const stored = JSON.parse(localStorage.getItem(STORAGE_ADMIN)); if (document.getElementById('adminLogin').value.trim()===stored.login && document.getElementById('adminPass').value===stored.password) { isAdminLoggedIn = true; currentAdminLogin = stored.login; headerAvatar.textContent = currentAdminLogin.charAt(0).toUpperCase(); const s = JSON.parse(localStorage.getItem(STORAGE_SETTINGS)||'{}'); if (s.avatar) headerAvatar.style.backgroundImage = `url(${s.avatar})`; showAdminPanel(); } else alert('Неверный логин или пароль'); });
     document.getElementById('logoutBtn').addEventListener('click', () => { isAdminLoggedIn = false; currentAdminLogin = ''; headerAvatar.textContent = 'A'; headerAvatar.style.backgroundImage = ''; modalOverlay.classList.remove('active'); loginForm.style.display='block'; adminPanel.style.display='none'; });
-    tabBookings.addEventListener('click', () => { tabBookingsContent.style.display='block'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='none'; renderBookingsTable(); });
+    tabBookings.addEventListener('click', () => { tabBookingsContent.style.display='block'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='none'; renderBookingsTable(); renderPlaceBlockControls(); });
     tabBoard.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='block'; tabSettingsContent.style.display='none'; boardDateFilter.value = new Date().toISOString().split('T')[0]; renderBoard(); });
     tabSettings.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='block'; loadSettingsToForm(); });
 
-    // ========== ДОСКА (с фильтром по дате и масштабированием) ==========
-    function applyBoardFontSize() {
-        document.documentElement.style.setProperty('--board-font-size', boardFontSize + 'px');
-    }
-    document.getElementById('boardZoomIn').addEventListener('click', () => {
-        boardFontSize = Math.min(boardFontSize + 2, 32);
-        applyBoardFontSize();
-    });
-    document.getElementById('boardZoomOut').addEventListener('click', () => {
-        boardFontSize = Math.max(boardFontSize - 2, 10);
-        applyBoardFontSize();
-    });
+    // Доска (вертикальный столбик)
+    function applyBoardFontSize() { document.documentElement.style.setProperty('--board-font-size', boardFontSize + 'px'); }
+    document.getElementById('boardZoomIn').addEventListener('click', () => { boardFontSize = Math.min(boardFontSize + 2, 32); applyBoardFontSize(); });
+    document.getElementById('boardZoomOut').addEventListener('click', () => { boardFontSize = Math.max(boardFontSize - 2, 10); applyBoardFontSize(); });
     document.getElementById('boardFullscreen').addEventListener('click', () => {
-        if (boardContainer.requestFullscreen) {
-            boardContainer.requestFullscreen();
-        } else if (boardContainer.webkitRequestFullscreen) {
-            boardContainer.webkitRequestFullscreen();
-        } else if (boardContainer.msRequestFullscreen) {
-            boardContainer.msRequestFullscreen();
-        }
+        if (boardContainer.requestFullscreen) boardContainer.requestFullscreen();
+        else if (boardContainer.webkitRequestFullscreen) boardContainer.webkitRequestFullscreen();
+        else if (boardContainer.msRequestFullscreen) boardContainer.msRequestFullscreen();
     });
     boardDateFilter.addEventListener('change', renderBoard);
 
@@ -654,30 +705,27 @@
         const selectedDate = boardDateFilter.value;
         if (!selectedDate) return;
         const filtered = allBookings.filter(b => b.date === selectedDate && b.status !== 'rejected');
-        const grouped = {};
-        filtered.forEach(b => {
-            const place = b.place || 'Не указано';
-            if (!grouped[place]) grouped[place] = [];
-            grouped[place].push(b);
-        });
+        const placesOrder = ['Подъемник 1', 'Подъемник 2', 'Подъемник 3', 'Яма'];
         let html = '';
-        if (Object.keys(grouped).length === 0) {
-            html = '<p style="color:#999;">Нет записей на выбранную дату.</p>';
-        } else {
-            html += '<div class="board-places">';
-            Object.keys(grouped).sort().forEach(place => {
-                html += `<div class="board-place"><h4>${place}</h4>`;
-                grouped[place].sort((a,b) => a.time.localeCompare(b.time)).forEach(b => {
+        let hasEntries = false;
+        placesOrder.forEach(place => {
+            const entries = filtered.filter(b => b.place === place).sort((a,b) => a.time.localeCompare(b.time));
+            if (entries.length > 0) hasEntries = true;
+            html += `<div class="board-place"><h4>${place}</h4>`;
+            if (entries.length === 0) {
+                html += '<p style="color:#999;">Нет записей</p>';
+            } else {
+                entries.forEach(b => {
                     html += `<div class="board-card">
                         <div class="client">${b.name} (${b.phone})</div>
                         <div class="time-range">${b.time} – ${b.duration||0.5} ч</div>
                         <div class="desc">${b.workDescription}</div>
                     </div>`;
                 });
-                html += '</div>';
-            });
+            }
             html += '</div>';
-        }
+        });
+        if (!hasEntries) html = '<p style="color:#999;">Нет записей на выбранную дату.</p>';
         boardContainer.innerHTML = html;
     }
 
@@ -776,6 +824,8 @@
         bookingDate.setAttribute('min', today);
         boardDateFilter.value = today;
         applyBoardFontSize();
+        loadBlockedPlaces();
+        subscribeBlockedPlaces();
         loadBookingsFromFirestore(() => { subscribeToBookings(); updateBadge(); });
         if (getUserEmail()) subscribeToNotifications();
     }
