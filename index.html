@@ -11,6 +11,7 @@
             --bg: #f9f9f9; --text: #212121; --header: #cc0000; --header-text: #ffffff;
             --card-bg: #ffffff; --shadow: 0 2px 8px rgba(0,0,0,0.1); --radius: 12px;
             --font: 'Roboto', 'Arial', sans-serif;
+            --board-font-size: 14px;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -180,17 +181,47 @@
         .settings-group input[type="color"] { width: 50px; height: 36px; border: none; cursor: pointer; padding: 0; border-radius: 8px; }
         .settings-group input[type="file"] { font-size: 13px; }
         .row-flex { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-        .board-container { display: flex; flex-wrap: wrap; gap: 20px; }
+
+        /* ДОСКА */
+        .board-controls {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 20px;
+        }
+        .board-controls label { font-weight: 500; display: flex; align-items: center; gap: 6px; }
+        .board-controls input[type="date"] { padding: 6px 10px; border-radius: 8px; border: 1px solid #ccc; }
+        .board-controls button {
+            padding: 8px 14px; border-radius: 20px; border: none; cursor: pointer; font-weight: 500;
+            background: #e0e0e0; color: #333; transition: background 0.2s;
+        }
+        .board-controls button:hover { background: #d0d0d0; }
+        .board-controls button.active { background: #065fd4; color: #fff; }
+        .board-container {
+            display: flex; flex-wrap: wrap; gap: 20px;
+            font-size: var(--board-font-size);
+        }
         .board-date-group { flex: 1 1 100%; }
-        .board-date-title { font-size: 18px; font-weight: 700; margin-bottom: 12px; color: #333; border-bottom: 2px solid #065fd4; padding-bottom: 4px; }
+        .board-date-title {
+            font-size: calc(var(--board-font-size) * 1.6);
+            font-weight: 700; margin-bottom: 12px; color: #333;
+            border-bottom: 2px solid #065fd4; padding-bottom: 4px;
+        }
         .board-places { display: flex; flex-wrap: wrap; gap: 20px; }
-        .board-place { background: #f0f4ff; border-radius: 12px; padding: 16px; flex: 1 1 250px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); }
-        .board-place h4 { font-size: 16px; margin-bottom: 10px; color: #065fd4; }
-        .board-card { background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+        .board-place {
+            background: #f0f4ff; border-radius: 12px; padding: 16px;
+            flex: 1 1 250px; box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+        .board-place h4 {
+            font-size: calc(var(--board-font-size) * 1.2);
+            margin-bottom: 10px; color: #065fd4;
+        }
+        .board-card {
+            background: #fff; border-radius: 10px; padding: 12px;
+            margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
         .board-card .client { font-weight: 600; }
-        .board-card .desc { color: #555; font-size: 14px; margin-top: 4px; }
-        .board-card .time-range { font-size: 13px; color: #065fd4; margin-top: 4px; }
+        .board-card .desc { color: #555; font-size: 0.95em; margin-top: 4px; }
+        .board-card .time-range { font-size: 0.9em; color: #065fd4; margin-top: 4px; }
         .btn-add-outside { background: #ff9800; color: #fff; margin-left: 8px; }
+
         @media (max-width: 480px) {
             .header { padding: 8px 14px; }
             .logo { font-size: 17px; }
@@ -295,6 +326,12 @@
             </div>
             <div id="tabBoardContent" style="display:none;">
                 <h4>📋 Доска механиков <button class="btn-small btn-add-outside" id="addOutsideBtn">+ Вне плана</button></h4>
+                <div class="board-controls">
+                    <label>Дата: <input type="date" id="boardDateFilter"></label>
+                    <button id="boardZoomIn" title="Увеличить шрифт">A+</button>
+                    <button id="boardZoomOut" title="Уменьшить шрифт">A‑</button>
+                    <button id="boardFullscreen" title="На весь экран">📺 На весь экран</button>
+                </div>
                 <div id="boardContainer" class="board-container"></div>
             </div>
             <div id="tabSettingsContent" style="display:none;">
@@ -343,6 +380,7 @@
 
     let allBookings = [], selectedTime = null, isAdminLoggedIn = false, currentAdminLogin = '';
     let lastKnownNotificationId = null;
+    let boardFontSize = 14; // размер шрифта по умолчанию
 
     // DOM элементы
     const menuIcon = document.getElementById('menuIcon');
@@ -375,6 +413,7 @@
     const tabSettingsContent = document.getElementById('tabSettingsContent');
     const bookingsList = document.getElementById('bookingsList');
     const boardContainer = document.getElementById('boardContainer');
+    const boardDateFilter = document.getElementById('boardDateFilter');
     const resetAllBlocksBtn = document.getElementById('resetAllBlocksBtn');
     const chatButton = document.getElementById('chatButton');
     const chatBadge = document.getElementById('chatBadge');
@@ -383,7 +422,7 @@
     const chatMessages = document.getElementById('chatMessages');
     const toastContainer = document.getElementById('toastContainer');
 
-    // Телефонная маска
+    // Телефонная маска и слоты (без изменений)
     clientPhone.addEventListener('input', function(e) {
         let val = e.target.value.replace(/\D/g, '');
         if (!val.startsWith('7') && val.length > 0) val = '7' + val;
@@ -398,7 +437,6 @@
     });
     function isValidPhone(phone) { const digits = phone.replace(/\D/g, ''); return digits.length === 11 && digits.startsWith('7'); }
 
-    // Слоты
     function generateTimeSlots() { const slots = []; for (let h = 10; h < 19; h++) for (let m = 0; m < 60; m += 30) { if (h === 19 && m > 0) break; slots.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`); } return slots; }
     const allSlots = generateTimeSlots();
 
@@ -423,7 +461,6 @@
     function checkForm() { submitBtn.disabled = !(clientName.value.trim() && isValidPhone(clientPhone.value) && bookingDate.value && placeSelect.value && selectedTime && workDescription.value.trim()); }
     function resetForm() { clientName.value = ''; clientPhone.value = ''; clientEmail.value = ''; bookingDate.value = ''; placeSelect.value = ''; placeSelect.disabled = false; workDescription.value = ''; selectedTime = null; timeSlots.innerHTML = ''; timeGroup.style.display = 'none'; submitBtn.disabled = true; successMsg.style.display = 'none'; }
 
-    // Яма для масла
     const oilKeywords = ['масла', 'масло', 'замена масла'];
     workDescription.addEventListener('input', () => { const text = workDescription.value.toLowerCase(); const hasOil = oilKeywords.some(k => text.includes(k)); if (hasOil) { if (placeSelect.value !== 'Яма') { placeSelect.value = 'Яма'; refreshTimeSlots(); } placeSelect.disabled = true; } else { if (placeSelect.disabled) placeSelect.disabled = false; } checkForm(); successMsg.style.display = 'none'; });
 
@@ -450,21 +487,18 @@
     }
     resetAllBlocksBtn.addEventListener('click', resetAllBlockedPhones);
 
-    // ========== УВЕДОМЛЕНИЯ (Firestore + Google Apps Script с Content-Type) ==========
+    // ========== УВЕДОМЛЕНИЯ (Firestore + Google Apps Script) ==========
     async function addNotification(recipientEmail, clientName, message) {
         if (!recipientEmail) return;
-        // Сохраняем в Firestore для чата и истории
         await db.collection('notifications').add({
-            recipientEmail,
-            message,
+            recipientEmail, message,
             timestamp: firebase.firestore.FieldValue.serverTimestamp(),
             read: false
         });
 
-        // Отправляем email через Google Apps Script
         if (GOOGLE_SCRIPT_URL) {
             try {
-                const response = await fetch(GOOGLE_SCRIPT_URL, {
+                await fetch(GOOGLE_SCRIPT_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -473,34 +507,23 @@
                         body: message
                     })
                 });
-                if (!response.ok) {
-                    console.error('Ошибка отправки email через Apps Script:', response.status);
-                }
-            } catch (err) {
-                console.error('Ошибка fetch к Apps Script:', err);
-            }
+            } catch (err) { console.error('Ошибка отправки email:', err); }
         }
     }
 
     function subscribeToNotifications() {
         const email = getUserEmail();
         if (!email) return;
-        db.collection('notifications')
-          .where('recipientEmail', '==', email)
+        db.collection('notifications').where('recipientEmail', '==', email)
           .onSnapshot(snapshot => {
               const unreadCount = snapshot.docs.filter(d => !d.data().read).length;
               chatBadge.textContent = unreadCount;
               chatBadge.classList.toggle('show', unreadCount > 0);
-              if (chatPanel.classList.contains('open')) {
-                  renderChatMessages(snapshot);
-              }
+              if (chatPanel.classList.contains('open')) renderChatMessages(snapshot);
               snapshot.docChanges().forEach(change => {
-                  if (change.type === 'added') {
-                      const data = change.doc.data();
-                      if (change.doc.id !== lastKnownNotificationId) {
-                          lastKnownNotificationId = change.doc.id;
-                          showToast(data.message);
-                      }
+                  if (change.type === 'added' && change.doc.id !== lastKnownNotificationId) {
+                      lastKnownNotificationId = change.doc.id;
+                      showToast(change.doc.data().message);
                   }
               });
               updateBadgeFromSnapshot(snapshot);
@@ -513,10 +536,7 @@
         let html = '';
         if (docs.length === 0) html = '<p style="color:#999;text-align:center;">Нет уведомлений</p>';
         else docs.forEach(n => {
-            html += `<div class="chat-message${n.read ? '' : ' unread'}">
-                <div>${n.message}</div>
-                <div class="time">${n.timestamp?.toDate().toLocaleString()||''}</div>
-            </div>`;
+            html += `<div class="chat-message${n.read ? '' : ' unread'}"><div>${n.message}</div><div class="time">${n.timestamp?.toDate().toLocaleString()||''}</div></div>`;
         });
         chatMessages.innerHTML = html;
         docs.forEach(n => { if (!n.read) db.collection('notifications').doc(n.id).update({ read: true }); });
@@ -524,20 +544,15 @@
 
     function showToast(message) {
         const toast = document.createElement('div');
-        toast.className = 'toast';
-        toast.textContent = message;
+        toast.className = 'toast'; toast.textContent = message;
         toastContainer.appendChild(toast);
         setTimeout(() => toast.remove(), 4000);
     }
 
     function updateBadgeFromSnapshot(snapshot) {
         const unread = snapshot.docs.filter(d => !d.data().read).length;
-        if (unread > 0) {
-            notifyBadge.textContent = unread;
-            notifyBadge.classList.add('show');
-        } else {
-            notifyBadge.classList.remove('show');
-        }
+        if (unread > 0) { notifyBadge.textContent = unread; notifyBadge.classList.add('show'); }
+        else notifyBadge.classList.remove('show');
     }
 
     async function updateBadge() {
@@ -545,29 +560,20 @@
         if (!email) return;
         const snap = await db.collection('notifications').where('recipientEmail', '==', email).where('read', '==', false).get();
         const count = snap.size;
-        if (count > 0) {
-            notifyBadge.textContent = count;
-            notifyBadge.classList.add('show');
-        } else {
-            notifyBadge.classList.remove('show');
-        }
+        if (count > 0) { notifyBadge.textContent = count; notifyBadge.classList.add('show'); }
+        else notifyBadge.classList.remove('show');
     }
 
     chatButton.addEventListener('click', () => {
         const isOpen = chatPanel.classList.toggle('open');
         if (isOpen) {
             const email = getUserEmail();
-            if (email) {
-                db.collection('notifications').where('recipientEmail', '==', email).get()
-                  .then(snap => renderChatMessages(snap));
-            } else {
-                chatMessages.innerHTML = '<p style="color:#999;text-align:center;">Введите email в боковом меню (☰)</p>';
-            }
+            if (email) db.collection('notifications').where('recipientEmail', '==', email).get().then(snap => renderChatMessages(snap));
+            else chatMessages.innerHTML = '<p style="color:#999;text-align:center;">Введите email в боковом меню (☰)</p>';
         }
     });
     chatCloseBtn.addEventListener('click', () => chatPanel.classList.remove('open'));
 
-    // Старая боковая панель
     function showNotifyPanel() {
         const email = getUserEmail();
         let emailHtml = '';
@@ -618,8 +624,62 @@
     document.getElementById('loginBtn').addEventListener('click', () => { const stored = JSON.parse(localStorage.getItem(STORAGE_ADMIN)); if (document.getElementById('adminLogin').value.trim()===stored.login && document.getElementById('adminPass').value===stored.password) { isAdminLoggedIn = true; currentAdminLogin = stored.login; headerAvatar.textContent = currentAdminLogin.charAt(0).toUpperCase(); const s = JSON.parse(localStorage.getItem(STORAGE_SETTINGS)||'{}'); if (s.avatar) headerAvatar.style.backgroundImage = `url(${s.avatar})`; showAdminPanel(); } else alert('Неверный логин или пароль'); });
     document.getElementById('logoutBtn').addEventListener('click', () => { isAdminLoggedIn = false; currentAdminLogin = ''; headerAvatar.textContent = 'A'; headerAvatar.style.backgroundImage = ''; modalOverlay.classList.remove('active'); loginForm.style.display='block'; adminPanel.style.display='none'; });
     tabBookings.addEventListener('click', () => { tabBookingsContent.style.display='block'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='none'; renderBookingsTable(); });
-    tabBoard.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='block'; tabSettingsContent.style.display='none'; renderBoard(); });
+    tabBoard.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='block'; tabSettingsContent.style.display='none'; boardDateFilter.value = new Date().toISOString().split('T')[0]; renderBoard(); });
     tabSettings.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='block'; loadSettingsToForm(); });
+
+    // ========== ДОСКА (с фильтром по дате и масштабированием) ==========
+    function applyBoardFontSize() {
+        document.documentElement.style.setProperty('--board-font-size', boardFontSize + 'px');
+    }
+    document.getElementById('boardZoomIn').addEventListener('click', () => {
+        boardFontSize = Math.min(boardFontSize + 2, 32);
+        applyBoardFontSize();
+    });
+    document.getElementById('boardZoomOut').addEventListener('click', () => {
+        boardFontSize = Math.max(boardFontSize - 2, 10);
+        applyBoardFontSize();
+    });
+    document.getElementById('boardFullscreen').addEventListener('click', () => {
+        if (boardContainer.requestFullscreen) {
+            boardContainer.requestFullscreen();
+        } else if (boardContainer.webkitRequestFullscreen) {
+            boardContainer.webkitRequestFullscreen();
+        } else if (boardContainer.msRequestFullscreen) {
+            boardContainer.msRequestFullscreen();
+        }
+    });
+    boardDateFilter.addEventListener('change', renderBoard);
+
+    function renderBoard() {
+        const selectedDate = boardDateFilter.value;
+        if (!selectedDate) return;
+        const filtered = allBookings.filter(b => b.date === selectedDate && b.status !== 'rejected');
+        const grouped = {};
+        filtered.forEach(b => {
+            const place = b.place || 'Не указано';
+            if (!grouped[place]) grouped[place] = [];
+            grouped[place].push(b);
+        });
+        let html = '';
+        if (Object.keys(grouped).length === 0) {
+            html = '<p style="color:#999;">Нет записей на выбранную дату.</p>';
+        } else {
+            html += '<div class="board-places">';
+            Object.keys(grouped).sort().forEach(place => {
+                html += `<div class="board-place"><h4>${place}</h4>`;
+                grouped[place].sort((a,b) => a.time.localeCompare(b.time)).forEach(b => {
+                    html += `<div class="board-card">
+                        <div class="client">${b.name} (${b.phone})</div>
+                        <div class="time-range">${b.time} – ${b.duration||0.5} ч</div>
+                        <div class="desc">${b.workDescription}</div>
+                    </div>`;
+                });
+                html += '</div>';
+            });
+            html += '</div>';
+        }
+        boardContainer.innerHTML = html;
+    }
 
     function renderBookingsTable() {
         if (!allBookings.length) { bookingsList.innerHTML = '<p style="color:#999;">Нет записей.</p>'; return; }
@@ -680,16 +740,6 @@
         addNotification(b.email, b.name, msg);
     }
 
-    function renderBoard() {
-        const filtered = allBookings.filter(b => b.status !== 'rejected');
-        const grouped = {};
-        filtered.forEach(b => { const key = b.date; if (!grouped[key]) grouped[key] = {}; if (!grouped[key][b.place]) grouped[key][b.place] = []; grouped[key][b.place].push(b); });
-        let html = '';
-        Object.keys(grouped).sort().forEach(date => { html += `<div class="board-date-group"><div class="board-date-title">📅 ${date}</div><div class="board-places">`; Object.keys(grouped[date]).forEach(place => { html += `<div class="board-place"><h4>${place}</h4>`; grouped[date][place].sort((a,b)=>a.time.localeCompare(b.time)).forEach(b => { html += `<div class="board-card"><div class="client">${b.name} (${b.phone})</div><div class="time-range">${b.time} – ${b.duration||0.5}ч</div><div class="desc">${b.workDescription}</div></div>`; }); html += '</div>'; }); html += '</div></div>'; });
-        if (!Object.keys(grouped).length) html = '<p style="color:#999;">Нет активных записей.</p>';
-        boardContainer.innerHTML = html;
-    }
-
     document.getElementById('addOutsideBtn').addEventListener('click', () => {
         const name = prompt('Имя клиента (звонок)');
         if (!name) return;
@@ -724,6 +774,8 @@
         applySettings(local);
         const today = new Date().toISOString().split('T')[0];
         bookingDate.setAttribute('min', today);
+        boardDateFilter.value = today;
+        applyBoardFontSize();
         loadBookingsFromFirestore(() => { subscribeToBookings(); updateBadge(); });
         if (getUserEmail()) subscribeToNotifications();
     }
