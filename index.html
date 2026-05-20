@@ -194,29 +194,37 @@
             background: #e0e0e0; color: #333; transition: background 0.2s;
         }
         .board-controls button:hover { background: #d0d0d0; }
+        .board-controls button.active { background: #065fd4; color: #fff; }
         .board-container {
-            display: flex; flex-direction: row; gap: 20px; overflow-x: auto;
+            display: flex; flex-direction: column; gap: 20px;
             font-size: var(--board-font-size); padding-bottom: 20px;
         }
+        .board-week-group { margin-bottom: 20px; }
+        .board-week-date {
+            font-size: calc(var(--board-font-size) * 1.4); font-weight: 700;
+            margin-bottom: 10px; color: #333; border-bottom: 2px solid #065fd4; padding-bottom: 4px;
+        }
+        .board-places-row {
+            display: flex; flex-direction: row; gap: 20px; overflow-x: auto;
+        }
         .board-place {
-            min-width: 280px; max-width: 350px; flex-shrink: 0;
+            min-width: 260px; max-width: 350px; flex-shrink: 0;
             background: #f0f4ff; border-radius: 12px; padding: 16px;
             box-shadow: 0 2px 6px rgba(0,0,0,0.05);
-            transition: background 0.2s;
         }
         .board-place.drag-over { background: #d0e0ff; }
         .board-place h4 {
-            font-size: calc(var(--board-font-size) * 1.2);
+            font-size: calc(var(--board-font-size) * 1.1);
             margin-bottom: 10px; color: #065fd4;
         }
         .board-card {
-            background: #fff; border-radius: 10px; padding: 12px; margin-bottom: 10px;
+            background: #fff; border-radius: 10px; padding: 10px; margin-bottom: 8px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.08); cursor: grab; transition: transform 0.2s;
         }
         .board-card:active { cursor: grabbing; }
         .board-card.rotated {
             writing-mode: vertical-rl; transform: rotate(180deg);
-            width: 100%; min-height: 120px;
+            width: 100%; min-height: 100px;
         }
         .board-card .client { font-weight: 600; }
         .board-card .desc { color: #555; font-size: 0.95em; margin-top: 4px; }
@@ -264,7 +272,7 @@
         <h2>📅 Запись в автосервис</h2>
         <div class="form-group"><label>👤 Ваше имя</label><input type="text" id="clientName" placeholder="Иван Иванов"></div>
         <div class="form-group"><label>📞 Номер телефона (+7 и 10 цифр обязательно)</label><input type="tel" id="clientPhone" placeholder="+7 900 123 45 67" maxlength="16"></div>
-        <div class="form-group"><label>🚗 Марка/модель авто (например, Toyota Camry)</label><input type="text" id="carModel" placeholder="Toyota Camry"></div>
+        <div class="form-group"><label>🚗 Марка/модель авто</label><input type="text" id="carModel" placeholder="Toyota Camry"></div>
         <div class="form-group"><label>📧 Email (для уведомлений о статусе)</label><input type="email" id="clientEmail" placeholder="mail@example.com"></div>
         <div class="form-group"><label>📅 Выберите дату</label><input type="date" id="bookingDate"></div>
         <div class="form-group"><label>🏗️ Выберите место</label>
@@ -337,6 +345,9 @@
             <div id="tabBoardContent" style="display:none;">
                 <h4>📋 Доска механиков <button class="btn-small btn-add-outside" id="addOutsideBtn">+ Вне плана</button></h4>
                 <div class="board-controls">
+                    <label>Режим:</label>
+                    <button id="boardModeDay" class="active">День</button>
+                    <button id="boardModeWeek">Неделя</button>
                     <label>Дата: <input type="date" id="boardDateFilter"></label>
                     <button id="boardZoomIn" title="Увеличить шрифт">A+</button>
                     <button id="boardZoomOut" title="Уменьшить шрифт">A‑</button>
@@ -391,6 +402,8 @@
     let allBookings = [], selectedTime = null, isAdminLoggedIn = false, currentAdminLogin = '';
     let lastKnownNotificationId = null, boardFontSize = 14, boardRotated = false;
     let blockedPlaces = {};
+    let boardViewMode = 'day'; // 'day' или 'week'
+    let boardAutoRefresh = null;
 
     // DOM элементы
     const menuIcon = document.getElementById('menuIcon');
@@ -427,6 +440,8 @@
     const bookingsList = document.getElementById('bookingsList');
     const boardContainer = document.getElementById('boardContainer');
     const boardDateFilter = document.getElementById('boardDateFilter');
+    const boardModeDay = document.getElementById('boardModeDay');
+    const boardModeWeek = document.getElementById('boardModeWeek');
     const boardRotateBtn = document.getElementById('boardRotate');
     const resetAllBlocksBtn = document.getElementById('resetAllBlocksBtn');
     const chatButton = document.getElementById('chatButton');
@@ -654,7 +669,7 @@
     notifyCloseBtn.addEventListener('click', () => notifyOverlay.classList.remove('active'));
     notifyOverlay.addEventListener('click', e => { if (e.target === notifyOverlay) notifyOverlay.classList.remove('active'); });
 
-    // Отправка записи
+    // Отправка записи (с гарантированной блокировкой)
     submitBtn.addEventListener('click', async () => {
         if (submitBtn.disabled) return;
         const phone = clientPhone.value.replace(/\s/g, '');
@@ -673,7 +688,12 @@
             status: 'pending',
             createdAt: firebase.firestore.FieldValue.serverTimestamp()
         };
-        try { await db.collection('bookings').add(newBooking); await blockPhone(phone); successMsg.style.display = 'block'; resetForm(); } catch (err) { alert('Ошибка: '+err.message); }
+        try {
+            await db.collection('bookings').add(newBooking);
+            await blockPhone(phone); // <-- гарантированная блокировка
+            successMsg.style.display = 'block';
+            resetForm();
+        } catch (err) { alert('Ошибка: '+err.message); }
     });
 
     // Админка (размер окна)
@@ -697,17 +717,41 @@
     });
     document.getElementById('logoutBtn').addEventListener('click', () => { isAdminLoggedIn = false; currentAdminLogin = ''; headerAvatar.textContent = 'A'; headerAvatar.style.backgroundImage = ''; modalOverlay.classList.remove('active'); loginForm.style.display='block'; adminPanel.style.display='none'; });
     tabBookings.addEventListener('click', () => { tabBookingsContent.style.display='block'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='none'; renderBookingsTable(); renderPlaceBlockControls(); });
-    tabBoard.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='block'; tabSettingsContent.style.display='none'; boardDateFilter.value = new Date().toISOString().split('T')[0]; renderBoard(); });
-    tabSettings.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='block'; loadSettingsToForm(); });
+    tabBoard.addEventListener('click', () => {
+        tabBookingsContent.style.display='none'; tabBoardContent.style.display='block'; tabSettingsContent.style.display='none';
+        boardDateFilter.value = new Date().toISOString().split('T')[0];
+        setBoardMode('day');
+        startAutoRefresh();
+    });
+    tabSettings.addEventListener('click', () => { tabBookingsContent.style.display='none'; tabBoardContent.style.display='none'; tabSettingsContent.style.display='block'; stopAutoRefresh(); loadSettingsToForm(); });
 
-    // Доска (drag-and-drop + поворот)
+    // Доска (режимы день/неделя и автообновление)
+    function startAutoRefresh() {
+        stopAutoRefresh();
+        boardAutoRefresh = setInterval(() => {
+            if (tabBoardContent.style.display === 'block') renderBoard();
+        }, 60000);
+    }
+    function stopAutoRefresh() {
+        if (boardAutoRefresh) { clearInterval(boardAutoRefresh); boardAutoRefresh = null; }
+    }
+
+    function setBoardMode(mode) {
+        boardViewMode = mode;
+        boardModeDay.classList.toggle('active', mode === 'day');
+        boardModeWeek.classList.toggle('active', mode === 'week');
+        boardDateFilter.style.display = mode === 'day' ? 'inline-block' : 'none';
+        renderBoard();
+    }
+    boardModeDay.addEventListener('click', () => setBoardMode('day'));
+    boardModeWeek.addEventListener('click', () => setBoardMode('week'));
+
     function applyBoardFontSize() { document.documentElement.style.setProperty('--board-font-size', boardFontSize + 'px'); }
     document.getElementById('boardZoomIn').addEventListener('click', () => { boardFontSize = Math.min(boardFontSize + 2, 32); applyBoardFontSize(); });
     document.getElementById('boardZoomOut').addEventListener('click', () => { boardFontSize = Math.max(boardFontSize - 2, 10); applyBoardFontSize(); });
     document.getElementById('boardFullscreen').addEventListener('click', () => {
         if (boardContainer.requestFullscreen) boardContainer.requestFullscreen();
         else if (boardContainer.webkitRequestFullscreen) boardContainer.webkitRequestFullscreen();
-        else if (boardContainer.msRequestFullscreen) boardContainer.msRequestFullscreen();
     });
     boardRotateBtn.addEventListener('click', () => {
         boardRotated = !boardRotated;
@@ -716,12 +760,31 @@
     });
     boardDateFilter.addEventListener('change', renderBoard);
 
+    function getWeekRange(dateStr) {
+        const date = new Date(dateStr + 'T00:00:00');
+        const day = date.getDay();
+        const diffToMonday = day === 0 ? -6 : 1 - day;
+        const monday = new Date(date);
+        monday.setDate(date.getDate() + diffToMonday);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        return {
+            start: monday.toISOString().split('T')[0],
+            end: sunday.toISOString().split('T')[0]
+        };
+    }
+
     function renderBoard() {
+        if (boardViewMode === 'week') {
+            renderBoardWeek();
+            return;
+        }
+        // Режим дня
         const selectedDate = boardDateFilter.value;
         if (!selectedDate) return;
         const filtered = allBookings.filter(b => b.date === selectedDate && b.status !== 'rejected');
         const placesOrder = ['Подъемник 1', 'Подъемник 2', 'Подъемник 3', 'Яма'];
-        let html = '';
+        let html = '<div class="board-places-row">';
         placesOrder.forEach(place => {
             const entries = filtered.filter(b => b.place === place).sort((a,b) => a.time.localeCompare(b.time));
             html += `<div class="board-place" data-place="${place}"><h4>${place}</h4>`;
@@ -735,11 +798,48 @@
             });
             html += '</div>';
         });
+        html += '</div>';
         boardContainer.innerHTML = html;
+        enableDragDrop();
+    }
 
+    function renderBoardWeek() {
+        const today = boardDateFilter.value || new Date().toISOString().split('T')[0];
+        const { start, end } = getWeekRange(today);
+        const filtered = allBookings.filter(b => b.status !== 'rejected' && b.date >= start && b.date <= end);
+        const placesOrder = ['Подъемник 1', 'Подъемник 2', 'Подъемник 3', 'Яма'];
+        // Группируем по датам
+        const dates = [];
+        for (let d = new Date(start + 'T00:00:00'); d <= new Date(end + 'T00:00:00'); d.setDate(d.getDate()+1)) {
+            dates.push(d.toISOString().split('T')[0]);
+        }
+        let html = '';
+        dates.forEach(date => {
+            const dayBookings = filtered.filter(b => b.date === date);
+            if (dayBookings.length === 0) return;
+            html += `<div class="board-week-group"><div class="board-week-date">📅 ${date}</div><div class="board-places-row">`;
+            placesOrder.forEach(place => {
+                const entries = dayBookings.filter(b => b.place === place).sort((a,b) => a.time.localeCompare(b.time));
+                html += `<div class="board-place" data-place="${place}"><h4>${place}</h4>`;
+                if (entries.length === 0) html += '<p style="color:#999;">—</p>';
+                else entries.forEach(b => {
+                    html += `<div class="board-card${boardRotated ? ' rotated' : ''}" draggable="true" data-id="${b.id}">
+                        <div class="client">${b.carModel || b.name}</div>
+                        <div class="time-range">${b.time} – ${b.duration||0.5} ч</div>
+                        <div class="desc">${b.workDescription}</div>
+                    </div>`;
+                });
+                html += '</div>';
+            });
+            html += '</div></div>';
+        });
+        boardContainer.innerHTML = html || '<p style="color:#999;">Нет записей на этой неделе.</p>';
+        enableDragDrop();
+    }
+
+    function enableDragDrop() {
         document.querySelectorAll('.board-card').forEach(card => {
-            card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', card.dataset.id); card.classList.add('dragging'); });
-            card.addEventListener('dragend', () => card.classList.remove('dragging'));
+            card.addEventListener('dragstart', e => { e.dataTransfer.setData('text/plain', card.dataset.id); });
         });
         document.querySelectorAll('.board-place').forEach(place => {
             place.addEventListener('dragover', e => { e.preventDefault(); place.classList.add('drag-over'); });
