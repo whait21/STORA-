@@ -177,6 +177,7 @@
         .btn-unlock { background: #2196F3; color: #fff; }
         .btn-reset-block { background: #e91e63; color: #fff; font-size: 13px; padding: 6px 14px; border-radius: 16px; margin-left: 10px; }
         .btn-delete-day { background: #d32f2f; color: #fff; font-size: 13px; padding: 4px 10px; border-radius: 20px; margin-left: 8px; cursor: pointer; border: none; }
+        .btn-refresh { background: #2196F3; color: white; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
         th, td { padding: 8px 6px; border-bottom: 1px solid #eee; text-align: left; vertical-align: middle; }
         th { font-weight: 600; font-size: 12px; color: #777; }
@@ -273,7 +274,7 @@
     </div>
 </div>
 
-<!-- ПАНЕЛЬ УВЕДОМЛЕНИЙ (старая) -->
+<!-- ПАНЕЛЬ УВЕДОМЛЕНИЙ -->
 <div class="notify-overlay" id="notifyOverlay">
     <div class="notify-panel" id="notifyPanel">
         <button class="notify-close" id="notifyCloseBtn">✕</button>
@@ -359,8 +360,10 @@
                 <button class="btn btn-primary" id="savePlaceBlocks">💾 Сохранить блокировки</button>
             </div>
             <div id="tabBoardContent" style="display:none;">
-                <h4>📋 Доска механиков <button class="btn-small btn-add-outside" id="addOutsideBtn">+ Вне плана</button>
+                <h4>📋 Доска механиков 
+                    <button class="btn-small btn-add-outside" id="addOutsideBtn">+ Вне плана</button>
                     <button class="btn-small btn-delete-day" id="deleteCurrentDayBtn" style="background:#d32f2f;">🗑 Удалить сегодняшний день</button>
+                    <button class="btn-small btn-refresh" id="refreshBoardBtn">⟳ Обновить</button>
                 </h4>
                 <div class="board-controls">
                     <label>Режим:</label>
@@ -473,6 +476,7 @@
     const placeBlockControls = document.getElementById('placeBlockControls');
     const savePlaceBlocksBtn = document.getElementById('savePlaceBlocks');
     const deleteCurrentDayBtn = document.getElementById('deleteCurrentDayBtn');
+    const refreshBoardBtn = document.getElementById('refreshBoardBtn');
 
     // Телефонная маска и слоты
     clientPhone.addEventListener('input', function(e) {
@@ -489,7 +493,6 @@
     });
     function isValidPhone(phone) { const digits = phone.replace(/\D/g, ''); return digits.length === 11 && digits.startsWith('7'); }
 
-    // Слоты
     function generateTimeSlots() { const slots = []; for (let h = 10; h < 19; h++) for (let m = 0; m < 60; m += 30) { if (h === 19 && m > 0) break; slots.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`); } return slots; }
     const allSlots = generateTimeSlots();
 
@@ -558,7 +561,6 @@
     function loadBookingsFromFirestore(callback) { db.collection('bookings').get().then(snapshot => { allBookings = []; snapshot.forEach(doc => allBookings.push({ id: doc.id, ...doc.data() })); if (callback) callback(); }).catch(err => { console.error(err); allBookings = []; if (callback) callback(); }); }
     function subscribeToBookings() { db.collection('bookings').onSnapshot(snapshot => { allBookings = []; snapshot.forEach(doc => allBookings.push({ id: doc.id, ...doc.data() })); if (bookingDate.value && placeSelect.value) renderTimeSlots(bookingDate.value, placeSelect.value); if (adminPanel.style.display === 'block') { if (tabBookingsContent.style.display === 'block') renderBookingsTable(); if (tabBoardContent.style.display === 'block') renderBoard(); } updateBadge(); }); }
 
-    // Блокировка мест
     function loadBlockedPlaces() {
         db.collection('settings').doc('blocked_places').get().then(doc => {
             blockedPlaces = doc.exists ? doc.data().places || {} : {};
@@ -747,7 +749,7 @@
         stopCycle();
         cycleTimer = setInterval(() => {
             const today = new Date().toISOString().split('T')[0];
-            boardDateFilter.value = today; // всегда сегодня
+            boardDateFilter.value = today;
             if (boardViewMode === 'day') {
                 setBoardMode('week');
             } else {
@@ -813,8 +815,8 @@
     }
 
     function applyBoardFontSize() { document.documentElement.style.setProperty('--board-font-size', boardFontSize + 'px'); }
-    document.getElementById('boardZoomIn').addEventListener('click', () => { boardFontSize = Math.min(boardFontSize + 2, 32); applyBoardFontSize(); });
-    document.getElementById('boardZoomOut').addEventListener('click', () => { boardFontSize = Math.max(boardFontSize - 2, 10); applyBoardFontSize(); });
+    document.getElementById('boardZoomIn').addEventListener('click', () => { boardFontSize = Math.min(boardFontSize + 2, 32); applyBoardFontSize(); renderBoard(); });
+    document.getElementById('boardZoomOut').addEventListener('click', () => { boardFontSize = Math.max(boardFontSize - 2, 10); applyBoardFontSize(); renderBoard(); });
     document.getElementById('boardFullscreen').addEventListener('click', () => {
         if (boardContainer.requestFullscreen) boardContainer.requestFullscreen();
         else if (boardContainer.webkitRequestFullscreen) boardContainer.webkitRequestFullscreen();
@@ -825,8 +827,8 @@
         document.querySelectorAll('.board-card').forEach(card => card.classList.toggle('rotated', boardRotated));
     });
     boardDateFilter.addEventListener('change', renderBoard);
+    refreshBoardBtn.addEventListener('click', () => { renderBoard(); showToast('Доска обновлена'); });
 
-    // Горячая клавиша: правый Alt → полноэкранный режим доски
     document.addEventListener('keydown', function(e) {
         if (e.code === 'AltRight' && boardContainer) {
             e.preventDefault();
@@ -835,7 +837,7 @@
         }
     });
 
-    // ========== НОВАЯ ФУНКЦИЯ: УДАЛЕНИЕ ДНЯ (всех записей) ==========
+    // ========== УДАЛЕНИЕ ДНЯ (записи + блок даты исчезает) ==========
     async function deleteDayFromBoard(dateToDelete) {
         const bookingsToDelete = allBookings.filter(b => b.date === dateToDelete && b.status !== 'rejected');
         if (bookingsToDelete.length === 0) {
@@ -847,20 +849,17 @@
         const batch = db.batch();
         for (const booking of bookingsToDelete) {
             batch.delete(db.collection('bookings').doc(booking.id));
-            // разблокируем телефон
             await unblockPhone(booking.phone);
-            // добавим уведомление
             if (booking.email) {
                 addNotification(booking.email, booking.name, `Запись на ${booking.date} в ${booking.time} (${booking.place}) удалена администратором (очистка дня).`);
             }
         }
         await batch.commit();
         alert(`Все записи за ${dateToDelete} удалены.`);
-        renderBoard();   // обновим доску
+        renderBoard();   // обновим доску – теперь день станет пустым, но останется видимым
         if (tabBookingsContent.style.display === 'block') renderBookingsTable();
     }
 
-    // Кнопка удаления текущего дня (режим "День")
     deleteCurrentDayBtn.addEventListener('click', async () => {
         const selectedDate = boardDateFilter.value;
         if (!selectedDate) return;
@@ -868,14 +867,16 @@
     });
 
     function getWeekRange(dateStr) {
-        const date = new Date(dateStr + 'T00:00:00');
-        const day = date.getDay();
-        const diffToMonday = day === 0 ? -6 : 1 - day;
+        // Используем универсальный подход без локальной даты, чтобы избежать сдвига по часовому поясу
+        const date = new Date(dateStr + 'T12:00:00Z'); // фиксируем полдень UTC
+        const dayOfWeek = date.getUTCDay(); // 0 вс, 1 пн, ...
+        const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
         const monday = new Date(date);
-        monday.setDate(date.getDate() + diffToMonday);
+        monday.setUTCDate(date.getUTCDate() + diffToMonday);
         const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        return { start: monday.toISOString().split('T')[0], end: sunday.toISOString().split('T')[0] };
+        sunday.setUTCDate(monday.getUTCDate() + 6);
+        const format = d => d.toISOString().split('T')[0];
+        return { start: format(monday), end: format(sunday) };
     }
 
     function renderBoard() {
@@ -910,15 +911,29 @@
     function renderBoardWeek() {
         const today = boardDateFilter.value || new Date().toISOString().split('T')[0];
         const { start, end } = getWeekRange(today);
-        const filtered = allBookings.filter(b => b.status !== 'rejected' && b.date >= start && b.date <= end);
+        // Генерируем все дни недели от start до end
         const dates = [];
-        for (let d = new Date(start + 'T00:00:00'); d <= new Date(end + 'T00:00:00'); d.setDate(d.getDate()+1)) {
-            dates.push(d.toISOString().split('T')[0]);
+        let current = new Date(start + 'T12:00:00Z');
+        const endDate = new Date(end + 'T12:00:00Z');
+        while (current <= endDate) {
+            dates.push(current.toISOString().split('T')[0]);
+            current.setUTCDate(current.getUTCDate() + 1);
+        }
+        // Фильтруем записи в пределах недели (независимо от статуса rejected – показываем только не отклонённые)
+        const weekBookings = allBookings.filter(b => b.status !== 'rejected' && b.date >= start && b.date <= end);
+        // Группируем по датам
+        const bookingsByDate = new Map();
+        weekBookings.forEach(b => {
+            if (!bookingsByDate.has(b.date)) bookingsByDate.set(b.date, []);
+            bookingsByDate.get(b.date).push(b);
+        });
+        // Сортируем записи внутри каждого дня по времени
+        for (let [date, list] of bookingsByDate.entries()) {
+            list.sort((a,b) => a.time.localeCompare(b.time));
         }
         let html = '';
         for (const date of dates) {
-            const dayBookings = filtered.filter(b => b.date === date).sort((a,b) => a.time.localeCompare(b.time));
-            // Показываем даже пустые дни, чтобы можно было удалить (но удалять всё равно нечего, кнопка покажет 0)
+            const dayBookings = bookingsByDate.get(date) || [];
             html += `<div class="board-week-group" data-date="${date}">
                         <div class="board-week-date">
                             📅 ${date}
@@ -939,8 +954,8 @@
             }
             html += `</div>`;
         }
-        boardContainer.innerHTML = html || '<p style="color:#999;">Нет записей на этой неделе.</p>';
-        // Навешиваем обработчики на кнопки удаления дня в недельном режиме
+        boardContainer.innerHTML = html;
+        // Навешиваем обработчики на кнопки удаления дня
         document.querySelectorAll('.delete-week-day').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
