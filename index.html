@@ -837,7 +837,7 @@
         }
     });
 
-    // ========== УДАЛЕНИЕ ДНЯ (записи + блок даты исчезает) ==========
+    // ========== УДАЛЕНИЕ ДНЯ ==========
     async function deleteDayFromBoard(dateToDelete) {
         const bookingsToDelete = allBookings.filter(b => b.date === dateToDelete && b.status !== 'rejected');
         if (bookingsToDelete.length === 0) {
@@ -856,7 +856,7 @@
         }
         await batch.commit();
         alert(`Все записи за ${dateToDelete} удалены.`);
-        renderBoard();   // обновим доску – теперь день станет пустым, но останется видимым
+        renderBoard();
         if (tabBookingsContent.style.display === 'block') renderBookingsTable();
     }
 
@@ -866,61 +866,24 @@
         await deleteDayFromBoard(selectedDate);
     });
 
-    function getWeekRange(dateStr) {
-        // Используем универсальный подход без локальной даты, чтобы избежать сдвига по часовому поясу
-        const date = new Date(dateStr + 'T12:00:00Z'); // фиксируем полдень UTC
-        const dayOfWeek = date.getUTCDay(); // 0 вс, 1 пн, ...
-        const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-        const monday = new Date(date);
-        monday.setUTCDate(date.getUTCDate() + diffToMonday);
-        const sunday = new Date(monday);
-        sunday.setUTCDate(monday.getUTCDate() + 6);
-        const format = d => d.toISOString().split('T')[0];
-        return { start: format(monday), end: format(sunday) };
-    }
-
-    function renderBoard() {
-        if (boardViewMode === 'week') {
-            renderBoardWeek();
-            return;
+    // ========== НЕДЕЛЬНЫЙ РЕЖИМ: ТОЛЬКО БУДУЩИЕ ДНИ (от сегодня) ==========
+    function getNextDaysFromToday(daysCount = 7) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const dates = [];
+        for (let i = 0; i < daysCount; i++) {
+            const d = new Date(today);
+            d.setDate(today.getDate() + i);
+            dates.push(d.toISOString().split('T')[0]);
         }
-        // Режим дня
-        const selectedDate = boardDateFilter.value;
-        if (!selectedDate) return;
-        const filtered = allBookings.filter(b => b.date === selectedDate && b.status !== 'rejected');
-        const placesOrder = ['Подъемник 1', 'Подъемник 2', 'Подъемник 3', 'Яма'];
-        let html = '<div class="board-places-row">';
-        placesOrder.forEach(place => {
-            const entries = filtered.filter(b => b.place === place).sort((a,b) => a.time.localeCompare(b.time));
-            html += `<div class="board-place" data-place="${place}"><h4>${place}</h4>`;
-            if (entries.length === 0) html += '<p style="color:#999;">Нет записей</p>';
-            else entries.forEach(b => {
-                html += `<div class="board-card${boardRotated ? ' rotated' : ''}" draggable="true" data-id="${b.id}">
-                    <div class="client">${b.carModel || b.name}</div>
-                    <div class="time-range">${b.time} – ${b.duration||0.5} ч</div>
-                    <div class="desc">${b.workDescription}</div>
-                </div>`;
-            });
-            html += '</div>';
-        });
-        html += '</div>';
-        boardContainer.innerHTML = html;
-        enableDragDrop();
+        return dates;
     }
 
     function renderBoardWeek() {
-        const today = boardDateFilter.value || new Date().toISOString().split('T')[0];
-        const { start, end } = getWeekRange(today);
-        // Генерируем все дни недели от start до end
-        const dates = [];
-        let current = new Date(start + 'T12:00:00Z');
-        const endDate = new Date(end + 'T12:00:00Z');
-        while (current <= endDate) {
-            dates.push(current.toISOString().split('T')[0]);
-            current.setUTCDate(current.getUTCDate() + 1);
-        }
-        // Фильтруем записи в пределах недели (независимо от статуса rejected – показываем только не отклонённые)
-        const weekBookings = allBookings.filter(b => b.status !== 'rejected' && b.date >= start && b.date <= end);
+        // Показываем только будущие дни: от сегодня до сегодня+6
+        const futureDates = getNextDaysFromToday(7);
+        // Фильтруем все записи, которые попадают в эти даты и не отклонены
+        const weekBookings = allBookings.filter(b => b.status !== 'rejected' && futureDates.includes(b.date));
         // Группируем по датам
         const bookingsByDate = new Map();
         weekBookings.forEach(b => {
@@ -928,11 +891,15 @@
             bookingsByDate.get(b.date).push(b);
         });
         // Сортируем записи внутри каждого дня по времени
-        for (let [date, list] of bookingsByDate.entries()) {
+        for (let list of bookingsByDate.values()) {
             list.sort((a,b) => a.time.localeCompare(b.time));
         }
+        if (futureDates.length === 0) {
+            boardContainer.innerHTML = '<p style="color:#999; text-align:center;">Нет будущих дней для отображения.</p>';
+            return;
+        }
         let html = '';
-        for (const date of dates) {
+        for (const date of futureDates) {
             const dayBookings = bookingsByDate.get(date) || [];
             html += `<div class="board-week-group" data-date="${date}">
                         <div class="board-week-date">
@@ -963,6 +930,35 @@
                 if (date) await deleteDayFromBoard(date);
             });
         });
+        enableDragDrop();
+    }
+
+    function renderBoard() {
+        if (boardViewMode === 'week') {
+            renderBoardWeek();
+            return;
+        }
+        // Режим дня
+        const selectedDate = boardDateFilter.value;
+        if (!selectedDate) return;
+        const filtered = allBookings.filter(b => b.date === selectedDate && b.status !== 'rejected');
+        const placesOrder = ['Подъемник 1', 'Подъемник 2', 'Подъемник 3', 'Яма'];
+        let html = '<div class="board-places-row">';
+        placesOrder.forEach(place => {
+            const entries = filtered.filter(b => b.place === place).sort((a,b) => a.time.localeCompare(b.time));
+            html += `<div class="board-place" data-place="${place}"><h4>${place}</h4>`;
+            if (entries.length === 0) html += '<p style="color:#999;">Нет записей</p>';
+            else entries.forEach(b => {
+                html += `<div class="board-card${boardRotated ? ' rotated' : ''}" draggable="true" data-id="${b.id}">
+                    <div class="client">${b.carModel || b.name}</div>
+                    <div class="time-range">${b.time} – ${b.duration||0.5} ч</div>
+                    <div class="desc">${b.workDescription}</div>
+                </div>`;
+            });
+            html += '</div>';
+        });
+        html += '</div>';
+        boardContainer.innerHTML = html;
         enableDragDrop();
     }
 
