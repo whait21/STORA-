@@ -176,6 +176,7 @@
         .btn-gray { background: #9e9e9e; color: #fff; }
         .btn-unlock { background: #2196F3; color: #fff; }
         .btn-reset-block { background: #e91e63; color: #fff; font-size: 13px; padding: 6px 14px; border-radius: 16px; margin-left: 10px; }
+        .btn-delete-day { background: #d32f2f; color: #fff; font-size: 13px; padding: 4px 10px; border-radius: 20px; margin-left: 8px; cursor: pointer; border: none; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
         th, td { padding: 8px 6px; border-bottom: 1px solid #eee; text-align: left; vertical-align: middle; }
         th { font-weight: 600; font-size: 12px; color: #777; }
@@ -208,10 +209,15 @@
             flex-shrink: 0;
             min-width: 320px;
             max-width: 400px;
+            background: #f4f8ff;
+            border-radius: 16px;
+            padding: 12px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
         }
         .board-week-date {
             font-size: calc(var(--board-font-size) * 1.3); font-weight: 700;
             margin-bottom: 8px; color: #333; border-bottom: 2px solid #065fd4; padding-bottom: 4px;
+            display: flex; justify-content: space-between; align-items: center;
         }
         .board-places-row {
             display: flex; flex-direction: row; gap: 20px; overflow-x: auto;
@@ -353,7 +359,9 @@
                 <button class="btn btn-primary" id="savePlaceBlocks">💾 Сохранить блокировки</button>
             </div>
             <div id="tabBoardContent" style="display:none;">
-                <h4>📋 Доска механиков <button class="btn-small btn-add-outside" id="addOutsideBtn">+ Вне плана</button></h4>
+                <h4>📋 Доска механиков <button class="btn-small btn-add-outside" id="addOutsideBtn">+ Вне плана</button>
+                    <button class="btn-small btn-delete-day" id="deleteCurrentDayBtn" style="background:#d32f2f;">🗑 Удалить сегодняшний день</button>
+                </h4>
                 <div class="board-controls">
                     <label>Режим:</label>
                     <button id="boardModeDay" class="active">День</button>
@@ -464,8 +472,9 @@
     const toastContainer = document.getElementById('toastContainer');
     const placeBlockControls = document.getElementById('placeBlockControls');
     const savePlaceBlocksBtn = document.getElementById('savePlaceBlocks');
+    const deleteCurrentDayBtn = document.getElementById('deleteCurrentDayBtn');
 
-    // Телефонная маска и слоты (без изменений)
+    // Телефонная маска и слоты
     clientPhone.addEventListener('input', function(e) {
         let val = e.target.value.replace(/\D/g, '');
         if (!val.startsWith('7') && val.length > 0) val = '7' + val;
@@ -765,10 +774,7 @@
         boardModeWeek.classList.toggle('active', mode === 'week');
         boardDateFilter.style.display = mode === 'day' ? 'inline-block' : 'none';
         boardContainer.classList.toggle('week-mode', mode === 'week');
-
-        // Всегда сбрасываем на сегодня при смене режима
         boardDateFilter.value = new Date().toISOString().split('T')[0];
-
         if (mode === 'day') {
             boardFontSize = 14;
             stopWeekScroll();
@@ -824,14 +830,41 @@
     document.addEventListener('keydown', function(e) {
         if (e.code === 'AltRight' && boardContainer) {
             e.preventDefault();
-            if (boardContainer.requestFullscreen) {
-                boardContainer.requestFullscreen();
-            } else if (boardContainer.webkitRequestFullscreen) {
-                boardContainer.webkitRequestFullscreen();
-            } else if (boardContainer.msRequestFullscreen) {
-                boardContainer.msRequestFullscreen();
+            if (boardContainer.requestFullscreen) boardContainer.requestFullscreen();
+            else if (boardContainer.webkitRequestFullscreen) boardContainer.webkitRequestFullscreen();
+        }
+    });
+
+    // ========== НОВАЯ ФУНКЦИЯ: УДАЛЕНИЕ ДНЯ (всех записей) ==========
+    async function deleteDayFromBoard(dateToDelete) {
+        const bookingsToDelete = allBookings.filter(b => b.date === dateToDelete && b.status !== 'rejected');
+        if (bookingsToDelete.length === 0) {
+            alert(`На дату ${dateToDelete} нет записей для удаления.`);
+            return;
+        }
+        const confirmMsg = `Вы уверены, что хотите удалить ВСЕ записи за ${dateToDelete} (${bookingsToDelete.length} шт.)?\nТелефоны клиентов будут разблокированы, а уведомления отправлены.`;
+        if (!confirm(confirmMsg)) return;
+        const batch = db.batch();
+        for (const booking of bookingsToDelete) {
+            batch.delete(db.collection('bookings').doc(booking.id));
+            // разблокируем телефон
+            await unblockPhone(booking.phone);
+            // добавим уведомление
+            if (booking.email) {
+                addNotification(booking.email, booking.name, `Запись на ${booking.date} в ${booking.time} (${booking.place}) удалена администратором (очистка дня).`);
             }
         }
+        await batch.commit();
+        alert(`Все записи за ${dateToDelete} удалены.`);
+        renderBoard();   // обновим доску
+        if (tabBookingsContent.style.display === 'block') renderBookingsTable();
+    }
+
+    // Кнопка удаления текущего дня (режим "День")
+    deleteCurrentDayBtn.addEventListener('click', async () => {
+        const selectedDate = boardDateFilter.value;
+        if (!selectedDate) return;
+        await deleteDayFromBoard(selectedDate);
     });
 
     function getWeekRange(dateStr) {
@@ -877,29 +910,44 @@
     function renderBoardWeek() {
         const today = boardDateFilter.value || new Date().toISOString().split('T')[0];
         const { start, end } = getWeekRange(today);
-        // Фильтруем записи только на эту неделю (сегодня + 6 дней)
         const filtered = allBookings.filter(b => b.status !== 'rejected' && b.date >= start && b.date <= end);
         const dates = [];
         for (let d = new Date(start + 'T00:00:00'); d <= new Date(end + 'T00:00:00'); d.setDate(d.getDate()+1)) {
             dates.push(d.toISOString().split('T')[0]);
         }
         let html = '';
-        dates.forEach(date => {
+        for (const date of dates) {
             const dayBookings = filtered.filter(b => b.date === date).sort((a,b) => a.time.localeCompare(b.time));
-            // Пропускаем дни без записей (можно показывать, но для компактности убираем)
-            if (dayBookings.length === 0) return;
-            html += `<div class="board-week-group"><div class="board-week-date">📅 ${date}</div>`;
-            html += `<div class="board-place"><h4>Записи</h4>`;
-            dayBookings.forEach(b => {
-                html += `<div class="board-card${boardRotated ? ' rotated' : ''}" draggable="true" data-id="${b.id}">
-                    <div class="client">${b.carModel || b.name}</div>
-                    <div class="time-range">${b.time} – ${b.duration||0.5} ч</div>
-                    <div class="desc">${b.workDescription}</div>
-                </div>`;
-            });
-            html += '</div></div>';
-        });
+            // Показываем даже пустые дни, чтобы можно было удалить (но удалять всё равно нечего, кнопка покажет 0)
+            html += `<div class="board-week-group" data-date="${date}">
+                        <div class="board-week-date">
+                            📅 ${date}
+                            <button class="btn-small btn-delete-day delete-week-day" data-date="${date}" style="background:#d32f2f;">🗑 Удалить день</button>
+                        </div>`;
+            if (dayBookings.length === 0) {
+                html += `<div class="board-place"><p style="color:#999;">Нет записей</p></div>`;
+            } else {
+                html += `<div class="board-place"><h4>Записи</h4>`;
+                dayBookings.forEach(b => {
+                    html += `<div class="board-card${boardRotated ? ' rotated' : ''}" draggable="true" data-id="${b.id}">
+                        <div class="client">${b.carModel || b.name}</div>
+                        <div class="time-range">${b.time} – ${b.duration||0.5} ч</div>
+                        <div class="desc">${b.workDescription}</div>
+                    </div>`;
+                });
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
         boardContainer.innerHTML = html || '<p style="color:#999;">Нет записей на этой неделе.</p>';
+        // Навешиваем обработчики на кнопки удаления дня в недельном режиме
+        document.querySelectorAll('.delete-week-day').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const date = btn.getAttribute('data-date');
+                if (date) await deleteDayFromBoard(date);
+            });
+        });
         enableDragDrop();
     }
 
@@ -926,7 +974,19 @@
         let html = `<table><thead><tr><th>Имя</th><th>Тел</th><th>Авто</th><th>Email</th><th>Дата</th><th>Место</th><th>Начало</th><th>Длит</th><th>Работа</th><th>Статус</th><th>Действия</th></tr></thead><tbody>`;
         sorted.forEach(b => {
             const st = {pending:'⏳ Ожидает', approved:'✅ Принято', rejected:'❌ Отклонено'}[b.status];
-            html += `<tr><td>${b.name}</td><td>${b.phone}</td><td>${b.carModel||'-'}</td><td>${b.email||'-'}</td><td>${b.date}</td><td>${b.place||'-'}</td><td>${b.time}</td><td>${b.duration||0.5}ч</td><td>${b.workDescription}</td><td>${st}</td><td>${b.status==='pending'?`<button class="btn-small btn-green approve-btn" data-id="${b.id}">✓</button><button class="btn-small btn-red reject-btn" data-id="${b.id}">✕</button>`:''}<button class="btn-small btn-orange edit-btn" data-id="${b.id}">✎</button><button class="btn-small btn-red delete-btn" data-id="${b.id}">🗑</button><button class="btn-small btn-unlock unlock-btn" data-phone="${b.phone}">🔓</button></td></tr>`;
+            html += `<tr>
+                <td>${b.name}</td>
+                <td>${b.phone}</td>
+                <td>${b.carModel||'-'}</td>
+                <td>${b.email||'-'}</td>
+                <td>${b.date}</td>
+                <td>${b.place||'-'}</td>
+                <td>${b.time}</td>
+                <td>${b.duration||0.5}ч</td>
+                <td>${b.workDescription}</td>
+                <td>${st}</td>
+                <td>${b.status==='pending'?`<button class="btn-small btn-green approve-btn" data-id="${b.id}">✓</button><button class="btn-small btn-red reject-btn" data-id="${b.id}">✕</button>`:''}<button class="btn-small btn-orange edit-btn" data-id="${b.id}">✎</button><button class="btn-small btn-red delete-btn" data-id="${b.id}">🗑</button><button class="btn-small btn-unlock unlock-btn" data-phone="${b.phone}">🔓</button></td>
+            </tr>`;
         });
         html += '</tbody></table>';
         bookingsList.innerHTML = html;
